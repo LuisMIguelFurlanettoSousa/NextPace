@@ -1,0 +1,1 @@
+export { TrainingButton } from './TrainingButton';
