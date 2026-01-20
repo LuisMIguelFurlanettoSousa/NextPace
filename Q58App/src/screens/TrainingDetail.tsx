@@ -12,8 +12,10 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { colors } from '../theme/colors';
-import { trainingStorage, Training, formatTime } from '../services/trainingStorage';
+import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
 import { TimerPickerModal, TimerButton, TimerPresets } from '../components/TimerPickerModal';
 
 interface TrainingDetailProps {
@@ -24,6 +26,7 @@ interface TrainingDetailProps {
 export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGoBack }) => {
   const [training, setTraining] = useState<Training | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [exerciseName, setExerciseName] = useState('');
   const [sets, setSets] = useState('3');
   const [reps, setReps] = useState('12');
@@ -36,6 +39,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const [showRestPicker, setShowRestPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
 
+  const isEditing = editingExerciseId !== null;
+
   useEffect(() => {
     loadTraining();
   }, []);
@@ -45,24 +50,46 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     setTraining(data);
   };
 
-  const handleAddExercise = async () => {
+  const handleOpenEditModal = (exercise: Exercise) => {
+    setEditingExerciseId(exercise.id);
+    setExerciseName(exercise.name);
+    setSets(exercise.sets.toString());
+    setReps(exercise.reps.toString());
+    setWeight(exercise.weight?.toString() || '');
+    setRestSeconds(exercise.restSeconds);
+    setSetDuration(exercise.setDurationSeconds);
+    setShowModal(true);
+  };
+
+  const handleSaveExercise = async () => {
     if (!exerciseName.trim()) return;
 
     setSaving(true);
     try {
-      await trainingStorage.addExercise(trainingId, {
-        name: exerciseName.trim(),
-        sets: parseInt(sets) || 3,
-        reps: parseInt(reps) || 12,
-        weight: weight ? parseFloat(weight) : undefined,
-        restSeconds: restSeconds,
-        setDurationSeconds: setDuration,
-      });
+      if (isEditing && editingExerciseId) {
+        await trainingStorage.updateExercise(trainingId, editingExerciseId, {
+          name: exerciseName.trim(),
+          sets: parseInt(sets) || 3,
+          reps: parseInt(reps) || 12,
+          weight: weight ? parseFloat(weight) : undefined,
+          restSeconds: restSeconds,
+          setDurationSeconds: setDuration,
+        });
+      } else {
+        await trainingStorage.addExercise(trainingId, {
+          name: exerciseName.trim(),
+          sets: parseInt(sets) || 3,
+          reps: parseInt(reps) || 12,
+          weight: weight ? parseFloat(weight) : undefined,
+          restSeconds: restSeconds,
+          setDurationSeconds: setDuration,
+        });
+      }
       await loadTraining();
       setShowModal(false);
       resetForm();
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível adicionar o exercício');
+      Alert.alert('Erro', isEditing ? 'Não foi possível atualizar o exercício' : 'Não foi possível adicionar o exercício');
     } finally {
       setSaving(false);
     }
@@ -77,13 +104,104 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     }
   };
 
+  const handleReorderExercises = async (exercises: Exercise[]) => {
+    if (!training) return;
+
+    // Atualiza estado local para feedback imediato
+    setTraining({ ...training, exercises });
+
+    // Salva no storage
+    try {
+      await trainingStorage.reorderExercises(trainingId, exercises);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível reordenar os exercícios');
+      await loadTraining();
+    }
+  };
+
   const resetForm = () => {
+    setEditingExerciseId(null);
     setExerciseName('');
     setSets('3');
     setReps('12');
     setWeight('');
     setRestSeconds(undefined);
     setSetDuration(undefined);
+  };
+
+  const renderExerciseItem = ({ item: exercise, drag, isActive, getIndex }: RenderItemParams<Exercise>) => {
+    const index = getIndex() ?? 0;
+
+    return (
+      <ScaleDecorator>
+        <TouchableOpacity
+          style={[styles.exerciseCard, isActive && styles.exerciseCardDragging]}
+          onPress={() => handleOpenEditModal(exercise)}
+          onLongPress={drag}
+          delayLongPress={150}
+          activeOpacity={0.7}
+        >
+          <View style={styles.exerciseHeader}>
+            <TouchableOpacity onLongPress={drag} delayLongPress={50} style={styles.dragHandle}>
+              <Ionicons name="menu" size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+            <View style={styles.exerciseNumber}>
+              <Text style={styles.exerciseNumberText}>{index + 1}</Text>
+            </View>
+            <Text style={styles.exerciseName}>{exercise.name}</Text>
+            <TouchableOpacity
+              onPress={() => handleDeleteExercise(exercise.id)}
+              style={styles.deleteButton}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.exerciseStats}>
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{exercise.sets}</Text>
+              <Text style={styles.statLabel}>séries</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.stat}>
+              <Text style={styles.statValue}>{exercise.reps}</Text>
+              <Text style={styles.statLabel}>reps</Text>
+            </View>
+            {exercise.restSeconds && (
+              <>
+                <View style={styles.statDivider} />
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{formatTime(exercise.restSeconds)}</Text>
+                  <Text style={styles.statLabel}>descanso</Text>
+                </View>
+              </>
+            )}
+            {exercise.weight && (
+              <>
+                <View style={styles.statDivider} />
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{exercise.weight}kg</Text>
+                  <Text style={styles.statLabel}>peso</Text>
+                </View>
+              </>
+            )}
+            {exercise.setDurationSeconds && (
+              <>
+                <View style={styles.statDivider} />
+                <View style={styles.stat}>
+                  <Text style={styles.statValue}>{formatTime(exercise.setDurationSeconds)}</Text>
+                  <Text style={styles.statLabel}>tempo</Text>
+                </View>
+              </>
+            )}
+          </View>
+          <View style={styles.editHint}>
+            <Ionicons name="pencil" size={12} color={colors.textMuted} />
+            <Text style={styles.editHintText}>Toque para editar • Segure para arrastar</Text>
+          </View>
+        </TouchableOpacity>
+      </ScaleDecorator>
+    );
   };
 
   if (!training) {
@@ -95,29 +213,31 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   }
 
   return (
-    <LinearGradient
-      colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
-      style={styles.gradient}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
-      <View style={styles.safeArea}>
-        <StatusBar style="light" />
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
+        style={styles.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.safeArea}>
+          <StatusBar style="light" />
 
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onGoBack} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={28} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {training.name}
-          </Text>
-          <View style={styles.headerSpacer} />
-        </View>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onGoBack} style={styles.backButton}>
+              <Ionicons name="chevron-back" size={28} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {training.name}
+            </Text>
+            <View style={styles.headerSpacer} />
+          </View>
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.exerciseCount}>
-            {training.exercises.length} exercício{training.exercises.length !== 1 ? 's' : ''}
-          </Text>
+          <View style={styles.exerciseCountContainer}>
+            <Text style={styles.exerciseCount}>
+              {training.exercises.length} exercício{training.exercises.length !== 1 ? 's' : ''}
+            </Text>
+          </View>
 
           {training.exercises.length === 0 ? (
             <View style={styles.emptyState}>
@@ -126,65 +246,14 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
               <Text style={styles.emptySubtext}>Toque no + para adicionar</Text>
             </View>
           ) : (
-            <View style={styles.exerciseList}>
-              {training.exercises.map((exercise, index) => (
-                <View key={exercise.id} style={styles.exerciseCard}>
-                  <View style={styles.exerciseHeader}>
-                    <View style={styles.exerciseNumber}>
-                      <Text style={styles.exerciseNumberText}>{index + 1}</Text>
-                    </View>
-                    <Text style={styles.exerciseName}>{exercise.name}</Text>
-                    <TouchableOpacity
-                      onPress={() => handleDeleteExercise(exercise.id)}
-                      style={styles.deleteButton}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.exerciseStats}>
-                    <View style={styles.stat}>
-                      <Text style={styles.statValue}>{exercise.sets}</Text>
-                      <Text style={styles.statLabel}>séries</Text>
-                    </View>
-                    <View style={styles.statDivider} />
-                    <View style={styles.stat}>
-                      <Text style={styles.statValue}>{exercise.reps}</Text>
-                      <Text style={styles.statLabel}>reps</Text>
-                    </View>
-                    {exercise.restSeconds && (
-                      <>
-                        <View style={styles.statDivider} />
-                        <View style={styles.stat}>
-                          <Text style={styles.statValue}>{formatTime(exercise.restSeconds)}</Text>
-                          <Text style={styles.statLabel}>descanso</Text>
-                        </View>
-                      </>
-                    )}
-                    {exercise.weight && (
-                      <>
-                        <View style={styles.statDivider} />
-                        <View style={styles.stat}>
-                          <Text style={styles.statValue}>{exercise.weight}kg</Text>
-                          <Text style={styles.statLabel}>peso</Text>
-                        </View>
-                      </>
-                    )}
-                    {exercise.setDurationSeconds && (
-                      <>
-                        <View style={styles.statDivider} />
-                        <View style={styles.stat}>
-                          <Text style={styles.statValue}>{formatTime(exercise.setDurationSeconds)}</Text>
-                          <Text style={styles.statLabel}>tempo</Text>
-                        </View>
-                      </>
-                    )}
-                  </View>
-                </View>
-              ))}
-            </View>
+            <DraggableFlatList
+              data={training.exercises}
+              renderItem={renderExerciseItem}
+              keyExtractor={(item) => item.id}
+              onDragEnd={({ data }) => handleReorderExercises(data)}
+              contentContainerStyle={styles.listContent}
+            />
           )}
-        </ScrollView>
 
         <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)}>
           <LinearGradient
@@ -207,7 +276,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Novo Exercício</Text>
+                <Text style={styles.modalTitle}>{isEditing ? 'Editar Exercício' : 'Novo Exercício'}</Text>
                 <TouchableOpacity onPress={() => { setShowModal(false); resetForm(); }}>
                   <Ionicons name="close" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -292,11 +361,11 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
 
                 <TouchableOpacity
                   style={[styles.saveButton, !exerciseName.trim() && styles.saveButtonDisabled]}
-                  onPress={handleAddExercise}
+                  onPress={handleSaveExercise}
                   disabled={!exerciseName.trim() || saving}
                 >
                   <Text style={styles.saveButtonText}>
-                    {saving ? 'Salvando...' : 'Adicionar Exercício'}
+                    {saving ? 'Salvando...' : isEditing ? 'Salvar Alterações' : 'Adicionar Exercício'}
                   </Text>
                 </TouchableOpacity>
               </ScrollView>
@@ -322,11 +391,15 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           onChange={setSetDuration}
         />
       </View>
-    </LinearGradient>
+      </LinearGradient>
+    </GestureHandlerRootView>
   );
 };
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   gradient: {
     flex: 1,
   },
@@ -370,17 +443,17 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 40,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    flexGrow: 1,
+  exerciseCountContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 8,
   },
   exerciseCount: {
     color: colors.textSecondary,
     fontSize: 14,
-    marginBottom: 16,
+  },
+  listContent: {
+    padding: 20,
+    paddingBottom: 100,
   },
   emptyState: {
     flex: 1,
@@ -407,11 +480,26 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: colors.cardBorder,
+    marginBottom: 12,
+  },
+  exerciseCardDragging: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.primary,
+    borderWidth: 2,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   exerciseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  dragHandle: {
+    padding: 4,
+    marginRight: 8,
   },
   exerciseNumber: {
     width: 28,
@@ -465,6 +553,20 @@ const styles = StyleSheet.create({
     width: 1,
     height: 24,
     backgroundColor: colors.cardBorder,
+  },
+  editHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  editHintText: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
   fab: {
     position: 'absolute',

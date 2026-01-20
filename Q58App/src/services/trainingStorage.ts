@@ -93,6 +93,38 @@ export const trainingStorage = {
     }
   },
 
+  async updateExercise(trainingId: string, exerciseId: string, updates: Partial<Omit<Exercise, 'id'>>): Promise<Exercise | null> {
+    try {
+      const trainings = await this.getAll();
+      const training = trainings.find((t) => t.id === trainingId);
+      if (!training) return null;
+
+      const exerciseIndex = training.exercises.findIndex((e) => e.id === exerciseId);
+      if (exerciseIndex === -1) return null;
+
+      training.exercises[exerciseIndex] = { ...training.exercises[exerciseIndex], ...updates };
+      await AsyncStorage.setItem(TRAININGS_KEY, JSON.stringify(trainings));
+      return training.exercises[exerciseIndex];
+    } catch (error) {
+      console.error('Error updating exercise:', error);
+      throw error;
+    }
+  },
+
+  async reorderExercises(trainingId: string, exercises: Exercise[]): Promise<void> {
+    try {
+      const trainings = await this.getAll();
+      const training = trainings.find((t) => t.id === trainingId);
+      if (!training) return;
+
+      training.exercises = exercises;
+      await AsyncStorage.setItem(TRAININGS_KEY, JSON.stringify(trainings));
+    } catch (error) {
+      console.error('Error reordering exercises:', error);
+      throw error;
+    }
+  },
+
   async removeExercise(trainingId: string, exerciseId: string): Promise<void> {
     try {
       const trainings = await this.getAll();
