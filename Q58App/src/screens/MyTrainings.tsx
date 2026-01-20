@@ -10,12 +10,14 @@ interface MyTrainingsProps {
   onAddTraining: () => void;
   onGoBack: () => void;
   onSelectTraining: (trainingId: string) => void;
+  onStartTraining: (trainingId: string) => void;
 }
 
 export const MyTrainings: React.FC<MyTrainingsProps> = ({
   onAddTraining,
   onGoBack,
   onSelectTraining,
+  onStartTraining,
 }) => {
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,19 +85,37 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
             /* Training List */
             <View style={styles.trainingList}>
               {trainings.map((training) => (
-                <TouchableOpacity
-                  key={training.id}
-                  style={styles.trainingCard}
-                  onPress={() => onSelectTraining(training.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.trainingInfo}>
+                <View key={training.id} style={styles.trainingCard}>
+                  {/* Play Button */}
+                  <TouchableOpacity
+                    style={styles.playButton}
+                    onPress={() => onStartTraining(training.id)}
+                    disabled={!training.exercises?.length}
+                  >
+                    <LinearGradient
+                      colors={training.exercises?.length ? [colors.primary, colors.primaryDark] : [colors.inactive, colors.inactive]}
+                      style={styles.playButtonGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Ionicons name="play" size={20} color={colors.textPrimary} />
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Training Info */}
+                  <TouchableOpacity
+                    style={styles.trainingInfo}
+                    onPress={() => onSelectTraining(training.id)}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.trainingName}>{training.name}</Text>
                     <Text style={styles.exerciseCount}>
                       {training.exercises?.length || 0} exercício
                       {(training.exercises?.length || 0) !== 1 ? 's' : ''}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
+
+                  {/* Actions */}
                   <View style={styles.trainingActions}>
                     <TouchableOpacity
                       onPress={() => handleDelete(training.id)}
@@ -103,9 +123,11 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
                     >
                       <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
                     </TouchableOpacity>
-                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                    <TouchableOpacity onPress={() => onSelectTraining(training.id)}>
+                      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
+                </View>
               ))}
             </View>
           )}
@@ -212,6 +234,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.cardBorder,
+  },
+  playButton: {
+    marginRight: 12,
+  },
+  playButtonGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   trainingInfo: {
     flex: 1,

@@ -3,8 +3,9 @@ import { Dashboard } from './src/screens/Dashboard';
 import { MyTrainings } from './src/screens/MyTrainings';
 import { AddTraining } from './src/screens/AddTraining';
 import { TrainingDetail } from './src/screens/TrainingDetail';
+import { ActiveTraining } from './src/screens/ActiveTraining';
 
-type Screen = 'Dashboard' | 'MyTrainings' | 'AddTraining' | 'TrainingDetail';
+type Screen = 'Dashboard' | 'MyTrainings' | 'AddTraining' | 'TrainingDetail' | 'ActiveTraining';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('Dashboard');
@@ -16,7 +17,7 @@ export default function App() {
   };
 
   const goBack = () => {
-    if (currentScreen === 'AddTraining' || currentScreen === 'TrainingDetail') {
+    if (currentScreen === 'AddTraining' || currentScreen === 'TrainingDetail' || currentScreen === 'ActiveTraining') {
       setCurrentScreen('MyTrainings');
       setSelectedTrainingId(null);
     } else {
@@ -34,6 +35,11 @@ export default function App() {
     setCurrentScreen('TrainingDetail');
   }, []);
 
+  const onStartTraining = useCallback((trainingId: string) => {
+    setSelectedTrainingId(trainingId);
+    setCurrentScreen('ActiveTraining');
+  }, []);
+
   switch (currentScreen) {
     case 'MyTrainings':
       return (
@@ -42,6 +48,7 @@ export default function App() {
           onAddTraining={() => navigate('AddTraining')}
           onGoBack={goBack}
           onSelectTraining={onSelectTraining}
+          onStartTraining={onStartTraining}
         />
       );
     case 'AddTraining':
@@ -49,6 +56,10 @@ export default function App() {
     case 'TrainingDetail':
       return selectedTrainingId ? (
         <TrainingDetail trainingId={selectedTrainingId} onGoBack={goBack} />
+      ) : null;
+    case 'ActiveTraining':
+      return selectedTrainingId ? (
+        <ActiveTraining trainingId={selectedTrainingId} onGoBack={goBack} />
       ) : null;
     default:
       return <Dashboard onTrainingPress={() => navigate('MyTrainings')} />;

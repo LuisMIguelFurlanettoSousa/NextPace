@@ -60,58 +60,65 @@ export const TimerPickerModal: React.FC<TimerPickerModalProps> = ({
   const handleChange = (event: any, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
       onClose();
+      if (event.type === 'dismissed') return;
     }
+
     if (selectedDate) {
       const seconds = dateToSeconds(selectedDate);
       onChange(seconds > 0 ? seconds : undefined);
     }
   };
 
-  const formatDuration = (seconds: number | undefined): string => {
-    if (!seconds) return placeholder;
-    return formatTime(seconds);
-  };
+  // Android: renderiza o picker diretamente (ele já é um modal nativo)
+  if (Platform.OS === 'android') {
+    if (!visible) return null;
+    return (
+      <DateTimePicker
+        value={secondsToDate(value)}
+        mode="time"
+        is24Hour={true}
+        display="spinner"
+        onChange={handleChange}
+      />
+    );
+  }
 
+  // iOS: renderiza dentro de um Modal customizado
   return (
-    <>
-      {/* iOS Modal */}
-      <Modal
-        visible={visible && Platform.OS === 'ios'}
-        transparent
-        animationType="fade"
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <TouchableOpacity
+        style={styles.pickerModalOverlay}
+        activeOpacity={1}
+        onPress={onClose}
       >
-        <View style={styles.pickerModalOverlay}>
-          <View style={styles.pickerModalContent}>
-            <View style={styles.pickerModalHeader}>
-              <Text style={styles.pickerModalTitle}>{title}</Text>
-              <TouchableOpacity onPress={onClose}>
-                <Text style={styles.pickerModalDone}>OK</Text>
-              </TouchableOpacity>
-            </View>
-            <DateTimePicker
-              value={secondsToDate(value)}
-              mode="countdown"
-              display="spinner"
-              onChange={handleChange}
-              minuteInterval={1}
-              style={styles.picker}
-              themeVariant="dark"
-            />
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => {}}
+          style={styles.pickerModalContent}
+        >
+          <View style={styles.pickerModalHeader}>
+            <Text style={styles.pickerModalTitle}>{title}</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={styles.pickerModalDone}>OK</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
-
-      {/* Android Picker */}
-      {visible && Platform.OS === 'android' && (
-        <DateTimePicker
-          value={secondsToDate(value)}
-          mode="time"
-          is24Hour={true}
-          display="spinner"
-          onChange={handleChange}
-        />
-      )}
-    </>
+          <DateTimePicker
+            value={secondsToDate(value)}
+            mode="countdown"
+            display="spinner"
+            onChange={handleChange}
+            minuteInterval={1}
+            style={styles.picker}
+            themeVariant="dark"
+          />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
   );
 };
 
@@ -136,16 +143,28 @@ export const TimerButton: React.FC<TimerButtonProps> = ({
     return formatTime(seconds);
   };
 
+  const handleClear = () => {
+    onClear();
+  };
+
   return (
-    <TouchableOpacity style={styles.timerButton} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.timerButton}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
       <Ionicons name={icon} size={24} color={colors.primary} />
       <Text
         style={[styles.timerButtonText, !value && styles.timerButtonTextPlaceholder]}
       >
         {formatDuration(value)}
       </Text>
-      {value && (
-        <TouchableOpacity onPress={onClear}>
+      {value !== undefined && (
+        <TouchableOpacity
+          onPress={handleClear}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
           <Ionicons name="close-circle" size={20} color={colors.textMuted} />
         </TouchableOpacity>
       )}

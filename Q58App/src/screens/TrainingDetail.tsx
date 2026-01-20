@@ -198,7 +198,12 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
         </TouchableOpacity>
 
         {/* Modal para adicionar exercício */}
-        <Modal visible={showModal} animationType="slide" transparent>
+        <Modal
+          visible={showModal}
+          animationType="slide"
+          transparent
+          presentationStyle="overFullScreen"
+        >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>

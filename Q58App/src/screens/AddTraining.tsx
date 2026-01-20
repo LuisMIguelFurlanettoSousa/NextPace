@@ -12,9 +12,10 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../theme/colors';
 import { trainingStorage, Exercise, formatTime } from '../services/trainingStorage';
-import { TimerPickerModal, TimerButton, TimerPresets } from '../components/TimerPickerModal';
+import { TimerButton, TimerPresets } from '../components/TimerPickerModal';
 
 interface AddTrainingProps {
   onGoBack: () => void;
@@ -41,6 +42,47 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   // Native picker state
   const [showRestPicker, setShowRestPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
+
+  const handleOpenRestPicker = () => {
+    setShowRestPicker(true);
+  };
+
+  const handleOpenDurationPicker = () => {
+    setShowDurationPicker(true);
+  };
+
+  // Funções auxiliares para o DateTimePicker (suporta horas, minutos e segundos)
+  const secondsToDate = (seconds: number | undefined): Date => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    if (seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      date.setHours(hours, minutes, secs, 0);
+    } else {
+      date.setHours(0, 1, 0, 0); // Default: 1 minuto
+    }
+    return date;
+  };
+
+  const dateToSeconds = (date: Date): number => {
+    return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+  };
+
+  const handleRestChange = (event: any, selectedDate?: Date) => {
+    if (selectedDate) {
+      const seconds = dateToSeconds(selectedDate);
+      setRestSeconds(seconds > 0 ? seconds : undefined);
+    }
+  };
+
+  const handleDurationChange = (event: any, selectedDate?: Date) => {
+    if (selectedDate) {
+      const seconds = dateToSeconds(selectedDate);
+      setSetDuration(seconds > 0 ? seconds : undefined);
+    }
+  };
 
   const handleSave = async () => {
     if (!trainingName.trim()) return;
@@ -262,7 +304,12 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
         </ScrollView>
 
         {/* Modal para adicionar exercício */}
-        <Modal visible={showModal} animationType="slide" transparent>
+        <Modal
+          visible={showModal}
+          animationType="slide"
+          transparent
+          presentationStyle="overFullScreen"
+        >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
@@ -331,7 +378,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   <TimerPresets value={restSeconds} onSelect={setRestSeconds} />
                   <TimerButton
                     value={restSeconds}
-                    onPress={() => setShowRestPicker(true)}
+                    onPress={handleOpenRestPicker}
                     onClear={() => setRestSeconds(undefined)}
                     icon="timer-outline"
                   />
@@ -343,7 +390,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   <TimerPresets value={setDuration} onSelect={setSetDuration} />
                   <TimerButton
                     value={setDuration}
-                    onPress={() => setShowDurationPicker(true)}
+                    onPress={handleOpenDurationPicker}
                     onClear={() => setSetDuration(undefined)}
                     icon="stopwatch-outline"
                   />
@@ -361,26 +408,71 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                 </TouchableOpacity>
               </ScrollView>
 
+              {/* Picker Overlay - Intervalo */}
+              {showRestPicker && (
+                <TouchableOpacity
+                  style={styles.pickerOverlay}
+                  activeOpacity={1}
+                  onPress={() => setShowRestPicker(false)}
+                >
+                  <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                    <View style={styles.pickerContent}>
+                      <View style={styles.pickerHeader}>
+                        <Text style={styles.pickerTitle}>Intervalo entre séries</Text>
+                        <TouchableOpacity onPress={() => setShowRestPicker(false)}>
+                          <Text style={styles.pickerDone}>OK</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.pickerLabels}>
+                        <Text style={styles.pickerLabel}>horas</Text>
+                        <Text style={styles.pickerLabel}>min</Text>
+                      </View>
+                      <DateTimePicker
+                        value={secondsToDate(restSeconds)}
+                        mode="countdown"
+                        display="spinner"
+                        onChange={handleRestChange}
+                        themeVariant="dark"
+                      />
+                    </View>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              )}
+
+              {/* Picker Overlay - Duração */}
+              {showDurationPicker && (
+                <TouchableOpacity
+                  style={styles.pickerOverlay}
+                  activeOpacity={1}
+                  onPress={() => setShowDurationPicker(false)}
+                >
+                  <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+                    <View style={styles.pickerContent}>
+                      <View style={styles.pickerHeader}>
+                        <Text style={styles.pickerTitle}>Tempo da série</Text>
+                        <TouchableOpacity onPress={() => setShowDurationPicker(false)}>
+                          <Text style={styles.pickerDone}>OK</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.pickerLabels}>
+                        <Text style={styles.pickerLabel}>horas</Text>
+                        <Text style={styles.pickerLabel}>min</Text>
+                      </View>
+                      <DateTimePicker
+                        value={secondsToDate(setDuration)}
+                        mode="countdown"
+                        display="spinner"
+                        onChange={handleDurationChange}
+                        themeVariant="dark"
+                      />
+                    </View>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              )}
+
             </View>
           </View>
         </Modal>
-
-        {/* Timer Picker Modals */}
-        <TimerPickerModal
-          visible={showRestPicker}
-          title="Intervalo entre séries"
-          value={restSeconds}
-          onClose={() => setShowRestPicker(false)}
-          onChange={setRestSeconds}
-        />
-
-        <TimerPickerModal
-          visible={showDurationPicker}
-          title="Tempo da série"
-          value={setDuration}
-          onClose={() => setShowDurationPicker(false)}
-          onChange={setSetDuration}
-        />
       </View>
     </LinearGradient>
   );
@@ -663,5 +755,58 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Picker Overlay Styles (absolute dentro do modal)
+  pickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 24,
+  },
+  pickerContent: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 340,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+  },
+  pickerTitle: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  pickerDone: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  pickerLabels: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 80,
+    paddingTop: 16,
+  },
+  pickerLabel: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
 });
