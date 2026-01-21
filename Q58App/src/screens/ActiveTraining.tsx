@@ -4,9 +4,8 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Alert,
-  Vibration,
-  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,7 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useAudioPlayer } from 'expo-audio';
 import { colors } from '../theme/colors';
-import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
+import { trainingStorage, Training, Exercise } from '../services/trainingStorage';
+import { CircularTimer } from '../components/CircularTimer';
 
 const ALARM_SOUND_URL = 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg';
 
@@ -40,7 +40,28 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   const [isPaused, setIsPaused] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const tapTimestamps = useRef<number[]>([]);
+  const warningPlayedRef = useRef(false);
   const player = useAudioPlayer(ALARM_SOUND_URL);
+
+  // Triple-tap to pause detection
+  const handleScreenTap = useCallback(() => {
+    const now = Date.now();
+    tapTimestamps.current.push(now);
+
+    // Keep only taps from the last 600ms
+    tapTimestamps.current = tapTimestamps.current.filter(
+      (timestamp) => now - timestamp < 600
+    );
+
+    // If 3 taps within 600ms, toggle pause
+    if (tapTimestamps.current.length >= 3) {
+      setIsPaused((prev) => !prev);
+      tapTimestamps.current = [];
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+  }, []);
 
   useEffect(() => {
     loadTraining();
@@ -60,29 +81,32 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     }
   };
 
-  const triggerNotification = useCallback(async () => {
+  // Short beep when phase starts (1 second)
+  const triggerStartBeep = useCallback(async () => {
+    try {
+      player.volume = 0.5;
+      player.seekTo(0);
+      player.play();
+      // Stop after 1 second
+      setTimeout(() => {
+        player.pause();
+      }, 1000);
+    } catch (e) {
+      console.log('Error playing start beep:', e);
+    }
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [player]);
+
+  // Normal alarm at 5 seconds before end (full sound)
+  const triggerWarning = useCallback(async () => {
     try {
       player.volume = 1.0;
       player.seekTo(0);
       player.play();
     } catch (e) {
-      console.log('Error playing sound:', e);
+      console.log('Error playing warning:', e);
     }
-
-    // Haptic feedback - multiple pulses for attention
-    if (Platform.OS === 'ios') {
-      // iOS: use expo-haptics (Taptic Engine)
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setTimeout(async () => {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      }, 300);
-      setTimeout(async () => {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      }, 600);
-    } else {
-      // Android: use Vibration pattern
-      Vibration.vibrate([0, 400, 200, 400]);
-    }
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   }, [player]);
 
   const currentExercise: Exercise | undefined = training?.exercises[currentExerciseIndex];
@@ -167,7 +191,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     if (isLastSet && isLastExercise) {
       // Training complete
       setPhase('finished');
-      triggerNotification();
+      triggerStartBeep();
     } else if (isLastSet) {
       // Next exercise
       const nextEx = training.exercises[currentExerciseIndex + 1];
@@ -178,7 +202,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       if (currentExercise.restSeconds) {
         setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
-        triggerNotification();
+        triggerStartBeep();
       } else if (nextEx?.setDurationSeconds) {
         setTimeLeft(nextEx.setDurationSeconds);
         setPhase('working');
@@ -191,12 +215,12 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       if (currentExercise.restSeconds) {
         setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
-        triggerNotification();
+        triggerStartBeep();
       } else if (currentExercise.setDurationSeconds) {
         setTimeLeft(currentExercise.setDurationSeconds);
       }
     }
-  }, [currentExercise, currentSet, currentExerciseIndex, training, triggerNotification]);
+  }, [currentExercise, currentSet, currentExerciseIndex, training, triggerStartBeep]);
 
   // Start next working phase after rest
   const startNextWorkingPhase = useCallback(() => {
@@ -207,8 +231,20 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       setTimeLeft(exercise.setDurationSeconds);
     }
     setPhase('working');
-    triggerNotification();
-  }, [currentExerciseIndex, training, triggerNotification]);
+    triggerStartBeep();
+  }, [currentExerciseIndex, training, triggerStartBeep]);
+
+  // Reset warning flag when phase changes
+  useEffect(() => {
+    warningPlayedRef.current = false;
+  }, [phase, currentSet, currentExerciseIndex]);
+
+  // Pause audio when timer is paused
+  useEffect(() => {
+    if (isPaused) {
+      player.pause();
+    }
+  }, [isPaused, player]);
 
   // Main timer effect
   useEffect(() => {
@@ -218,6 +254,12 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
+        // 5-second warning
+        if (prev === 6 && !warningPlayedRef.current) {
+          warningPlayedRef.current = true;
+          triggerWarning();
+        }
+
         if (prev <= 1) {
           clearInterval(timerRef.current!);
 
@@ -239,7 +281,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [phase, isPaused, timeLeft, advanceWorkout, startNextWorkingPhase]);
+  }, [phase, isPaused, timeLeft, advanceWorkout, startNextWorkingPhase, triggerWarning]);
 
   const togglePause = () => {
     setIsPaused((prev) => !prev);
@@ -355,35 +397,36 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={styles.container}>
-        <StatusBar style="light" />
+      <TouchableWithoutFeedback onPress={handleScreenTap}>
+        <View style={styles.container}>
+          <StatusBar style="light" />
 
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleCancel} style={styles.cancelButton}>
-            <Ionicons name="close" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{training.name}</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-
-        {/* Progress Bar */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleCancel} style={styles.cancelButton}>
+              <Ionicons name="close" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>{training.name}</Text>
+            <View style={styles.headerSpacer} />
           </View>
-          <View style={styles.progressInfo}>
-            <Text style={styles.progressText}>
-              {totalSetsCompleted}/{totalSets} séries
-            </Text>
-            <Text style={styles.durationText}>
-              {formatDuration(elapsedTime)} / {formatDuration(totalDuration)}
-            </Text>
-          </View>
-        </View>
 
-        {/* Main Content */}
-        <View style={styles.content}>
+          {/* Progress Bar */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${progress}%` }]} />
+            </View>
+            <View style={styles.progressInfo}>
+              <Text style={styles.progressText}>
+                {totalSetsCompleted}/{totalSets} séries
+              </Text>
+              <Text style={styles.durationText}>
+                {formatDuration(elapsedTime)} / {formatDuration(totalDuration)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Main Content */}
+          <View style={styles.content}>
           {/* Phase Label */}
           <View style={[styles.phaseLabel, isWorking ? styles.workingLabel : styles.restingLabel]}>
             <Text style={styles.phaseLabelText}>
@@ -405,12 +448,24 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
             </Text>
           </View>
 
-          {/* Timer */}
+          {/* Circular Timer */}
           <View style={styles.timerContainer}>
-            <Text style={[styles.timer, isPaused && styles.timerPaused]}>
-              {formatTime(timeLeft)}
-            </Text>
-            {isPaused && <Text style={styles.pausedText}>PAUSADO</Text>}
+            <CircularTimer
+              timeLeft={timeLeft}
+              totalTime={
+                isWorking
+                  ? currentExercise.setDurationSeconds || 0
+                  : currentExercise.restSeconds || 0
+              }
+              size={260}
+              isResting={!isWorking}
+              isPaused={isPaused}
+            />
+            {isPaused && (
+              <View style={styles.pausedOverlay}>
+                <Text style={styles.pausedText}>PAUSADO</Text>
+              </View>
+            )}
           </View>
 
           {/* Exercise Details */}
@@ -460,7 +515,8 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
 
           <View style={styles.controlSpacer} />
         </View>
-      </View>
+        </View>
+      </TouchableWithoutFeedback>
     </LinearGradient>
   );
 };
@@ -543,9 +599,9 @@ const styles = StyleSheet.create({
   },
   phaseLabel: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: 20,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   workingLabel: {
     backgroundColor: 'rgba(255, 59, 92, 0.2)',
@@ -566,14 +622,14 @@ const styles = StyleSheet.create({
   },
   exerciseName: {
     color: colors.textPrimary,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   setInfo: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   setLabel: {
     color: colors.textSecondary,
@@ -589,22 +645,25 @@ const styles = StyleSheet.create({
   },
   timerContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    justifyContent: 'center',
+    marginBottom: 24,
   },
-  timer: {
-    color: colors.textPrimary,
-    fontSize: 80,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  timerPaused: {
-    opacity: 0.5,
+  pausedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pausedText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 8,
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   exerciseDetails: {
     flexDirection: 'row',

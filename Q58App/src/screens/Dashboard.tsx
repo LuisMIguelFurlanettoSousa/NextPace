@@ -7,9 +7,10 @@ import { colors } from '../theme/colors';
 
 interface DashboardProps {
   onTrainingPress: () => void;
+  onProfilePress: () => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress, onProfilePress }) => {
   return (
     <LinearGradient
       colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
@@ -25,8 +26,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress }) => {
         >
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.greeting}>Olá!</Text>
-            <Text style={styles.headerTitle}>Q58</Text>
+            <View>
+              <Text style={styles.greeting}>Olá!</Text>
+              <Text style={styles.headerTitle}>Q58</Text>
+            </View>
+            <TouchableOpacity onPress={() => { console.log('Profile pressed'); onProfilePress(); }} style={styles.profileButton}>
+              <Ionicons name="person-circle-outline" size={36} color={colors.textPrimary} />
+            </TouchableOpacity>
           </View>
 
           {/* Main CTA - Training Button */}
@@ -85,7 +91,18 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 30,
+  },
+  profileButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.cardBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   greeting: {
     color: colors.textSecondary,

@@ -4,8 +4,9 @@ import { MyTrainings } from './src/screens/MyTrainings';
 import { AddTraining } from './src/screens/AddTraining';
 import { TrainingDetail } from './src/screens/TrainingDetail';
 import { ActiveTraining } from './src/screens/ActiveTraining';
+import { Profile } from './src/screens/Profile';
 
-type Screen = 'Dashboard' | 'MyTrainings' | 'AddTraining' | 'TrainingDetail' | 'ActiveTraining';
+type Screen = 'Dashboard' | 'MyTrainings' | 'AddTraining' | 'TrainingDetail' | 'ActiveTraining' | 'Profile';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('Dashboard');
@@ -20,6 +21,8 @@ export default function App() {
     if (currentScreen === 'AddTraining' || currentScreen === 'TrainingDetail' || currentScreen === 'ActiveTraining') {
       setCurrentScreen('MyTrainings');
       setSelectedTrainingId(null);
+    } else if (currentScreen === 'Profile' || currentScreen === 'MyTrainings') {
+      setCurrentScreen('Dashboard');
     } else {
       setCurrentScreen('Dashboard');
     }
@@ -69,7 +72,14 @@ export default function App() {
           onGoToTrainingDetail={goToTrainingDetail}
         />
       ) : null;
+    case 'Profile':
+      return <Profile onGoBack={goBack} />;
     default:
-      return <Dashboard onTrainingPress={() => navigate('MyTrainings')} />;
+      return (
+        <Dashboard
+          onTrainingPress={() => navigate('MyTrainings')}
+          onProfilePress={() => navigate('Profile')}
+        />
+      );
   }
 }

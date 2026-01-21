@@ -333,18 +333,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                   />
                 </View>
 
-                {/* Intervalo entre séries */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Intervalo entre séries - opcional</Text>
-                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} />
-                  <TimerButton
-                    value={restSeconds}
-                    onPress={() => setShowRestPicker(true)}
-                    onClear={() => setRestSeconds(undefined)}
-                    icon="timer-outline"
-                  />
-                </View>
-
                 {/* Tempo da série */}
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Tempo da série - opcional</Text>
@@ -354,6 +342,18 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                     onPress={() => setShowDurationPicker(true)}
                     onClear={() => setSetDuration(undefined)}
                     icon="stopwatch-outline"
+                  />
+                </View>
+
+                {/* Descanso entre séries */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Descanso entre séries - opcional</Text>
+                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} />
+                  <TimerButton
+                    value={restSeconds}
+                    onPress={() => setShowRestPicker(true)}
+                    onClear={() => setRestSeconds(undefined)}
+                    icon="timer-outline"
                   />
                 </View>
 
@@ -368,26 +368,25 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                 </TouchableOpacity>
               </ScrollView>
 
+              {/* Timer Picker Modals - Inside exercise modal for proper stacking */}
+              <TimerPickerModal
+                visible={showRestPicker}
+                title="Descanso entre séries"
+                value={restSeconds}
+                onClose={() => setShowRestPicker(false)}
+                onChange={setRestSeconds}
+              />
+
+              <TimerPickerModal
+                visible={showDurationPicker}
+                title="Tempo da série"
+                value={setDuration}
+                onClose={() => setShowDurationPicker(false)}
+                onChange={setSetDuration}
+              />
             </View>
           </View>
         </Modal>
-
-        {/* Timer Picker Modals */}
-        <TimerPickerModal
-          visible={showRestPicker}
-          title="Intervalo entre séries"
-          value={restSeconds}
-          onClose={() => setShowRestPicker(false)}
-          onChange={setRestSeconds}
-        />
-
-        <TimerPickerModal
-          visible={showDurationPicker}
-          title="Tempo da série"
-          value={setDuration}
-          onClose={() => setShowDurationPicker(false)}
-          onChange={setSetDuration}
-        />
       </View>
     </LinearGradient>
   );
