@@ -40,6 +40,10 @@ export default function App() {
     setCurrentScreen('ActiveTraining');
   }, []);
 
+  const goToTrainingDetail = useCallback(() => {
+    setCurrentScreen('TrainingDetail');
+  }, []);
+
   switch (currentScreen) {
     case 'MyTrainings':
       return (
@@ -59,7 +63,11 @@ export default function App() {
       ) : null;
     case 'ActiveTraining':
       return selectedTrainingId ? (
-        <ActiveTraining trainingId={selectedTrainingId} onGoBack={goBack} />
+        <ActiveTraining
+          trainingId={selectedTrainingId}
+          onGoBack={goBack}
+          onGoToTrainingDetail={goToTrainingDetail}
+        />
       ) : null;
     default:
       return <Dashboard onTrainingPress={() => navigate('MyTrainings')} />;

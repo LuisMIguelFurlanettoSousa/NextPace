@@ -16,55 +16,51 @@ import { useAudioPlayer } from 'expo-audio';
 import { colors } from '../theme/colors';
 import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
 
-// Som de alarme alto e chamativo
 const ALARM_SOUND_URL = 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg';
 
 interface ActiveTrainingProps {
   trainingId: string;
   onGoBack: () => void;
+  onGoToTrainingDetail: () => void;
 }
 
-type WorkoutPhase = 'exercise' | 'resting' | 'finished';
+type WorkoutPhase = 'working' | 'resting' | 'finished';
 
 export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   trainingId,
   onGoBack,
+  onGoToTrainingDetail,
 }) => {
   const [training, setTraining] = useState<Training | null>(null);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [currentSet, setCurrentSet] = useState(1);
-  const [phase, setPhase] = useState<WorkoutPhase>('exercise');
-  const [restTimeLeft, setRestTimeLeft] = useState(0);
-  const [setTimeLeft, setSetTimeLeft] = useState(0);
-  const [isSetTimerRunning, setIsSetTimerRunning] = useState(false);
+  const [phase, setPhase] = useState<WorkoutPhase>('working');
+  const [timeLeft, setTimeLeft] = useState(0);
   const [totalSetsCompleted, setTotalSetsCompleted] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
-  const restTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const setTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Audio player para o som de alarme
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const player = useAudioPlayer(ALARM_SOUND_URL);
 
-  // Load training
   useEffect(() => {
     loadTraining();
     return () => {
-      cleanupTimers();
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
 
   const loadTraining = async () => {
     const data = await trainingStorage.getById(trainingId);
     setTraining(data);
-  };
-
-  const cleanupTimers = () => {
-    if (restTimerRef.current) clearInterval(restTimerRef.current);
-    if (setTimerRef.current) clearInterval(setTimerRef.current);
+    if (data && data.exercises.length > 0) {
+      const firstExercise = data.exercises[0];
+      if (firstExercise.setDurationSeconds) {
+        setTimeLeft(firstExercise.setDurationSeconds);
+      }
+    }
   };
 
   const triggerNotification = useCallback(async () => {
-    // Som de alarme alto - volume máximo
     try {
       player.volume = 1.0;
       player.seekTo(0);
@@ -73,21 +69,20 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       console.log('Error playing sound:', e);
     }
 
-    // Vibração forte e longa
-    if (Platform.OS === 'android') {
-      Vibration.vibrate([0, 1000, 300, 1000, 300, 1000]);
+    // Haptic feedback - multiple pulses for attention
+    if (Platform.OS === 'ios') {
+      // iOS: use expo-haptics (Taptic Engine)
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setTimeout(async () => {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }, 300);
+      setTimeout(async () => {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }, 600);
     } else {
-      // iOS - vibração contínua
-      Vibration.vibrate();
-      setTimeout(() => Vibration.vibrate(), 500);
-      setTimeout(() => Vibration.vibrate(), 1000);
-      setTimeout(() => Vibration.vibrate(), 1500);
+      // Android: use Vibration pattern
+      Vibration.vibrate([0, 400, 200, 400]);
     }
-
-    // Haptic feedback forte
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 400);
-    setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy), 800);
   }, [player]);
 
   const currentExercise: Exercise | undefined = training?.exercises[currentExerciseIndex];
@@ -95,94 +90,170 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   const totalExercises = training?.exercises.length || 0;
   const totalSets = training?.exercises.reduce((acc, ex) => acc + ex.sets, 0) || 0;
 
-  // Rest timer
-  useEffect(() => {
-    if (phase === 'resting' && restTimeLeft > 0) {
-      restTimerRef.current = setInterval(() => {
-        setRestTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(restTimerRef.current!);
-            triggerNotification();
-            setPhase('exercise');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+  // Calculate total training duration in seconds
+  const totalDuration = training?.exercises.reduce((total, ex) => {
+    const workTime = (ex.setDurationSeconds || 0) * ex.sets;
+    const restTime = (ex.restSeconds || 0) * (ex.sets - 1); // rest between sets
+    return total + workTime + restTime;
+  }, 0) || 0;
+
+  // Calculate elapsed time based on workout progress (not real time)
+  const elapsedTime = (() => {
+    if (!training) return 0;
+
+    let elapsed = 0;
+
+    // Add time from fully completed exercises
+    for (let i = 0; i < currentExerciseIndex; i++) {
+      const ex = training.exercises[i];
+      elapsed += (ex.setDurationSeconds || 0) * ex.sets;
+      elapsed += (ex.restSeconds || 0) * (ex.sets - 1);
     }
 
-    return () => {
-      if (restTimerRef.current) clearInterval(restTimerRef.current);
-    };
-  }, [phase, restTimeLeft, triggerNotification]);
+    // Add time from current exercise
+    if (currentExercise) {
+      const setDuration = currentExercise.setDurationSeconds || 0;
+      const restDuration = currentExercise.restSeconds || 0;
 
-  // Set duration timer
-  useEffect(() => {
-    if (isSetTimerRunning && setTimeLeft > 0) {
-      setTimerRef.current = setInterval(() => {
-        setSetTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(setTimerRef.current!);
-            setIsSetTimerRunning(false);
-            triggerNotification();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      if (phase === 'working') {
+        // In working phase: currentSet is the set we're doing
+        // Completed sets = currentSet - 1
+        // Completed rests = currentSet - 1 (rest after each completed set)
+        const setsCompleted = currentSet - 1;
+        elapsed += setDuration * setsCompleted;
+        elapsed += restDuration * setsCompleted;
+        // Add progress in current set
+        elapsed += setDuration - timeLeft;
+      } else if (phase === 'resting') {
+        // In resting phase: currentSet was already incremented to the next set
+        // Completed sets = currentSet - 1
+        // Completed rests = currentSet - 2 (we're currently in a rest)
+        const setsCompleted = currentSet - 1;
+        const restsCompleted = Math.max(0, currentSet - 2);
+        elapsed += setDuration * setsCompleted;
+        elapsed += restDuration * restsCompleted;
+        // Add progress in current rest
+        elapsed += restDuration - timeLeft;
+      }
     }
 
-    return () => {
-      if (setTimerRef.current) clearInterval(setTimerRef.current);
-    };
-  }, [isSetTimerRunning, setTimeLeft, triggerNotification]);
+    return elapsed;
+  })();
 
-  const startSetTimer = () => {
-    if (currentExercise?.setDurationSeconds) {
-      setSetTimeLeft(currentExercise.setDurationSeconds);
-      setIsSetTimerRunning(true);
+  // Smart duration format - only shows hours/min when needed
+  const formatDuration = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
+    if (mins > 0) {
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${secs}s`;
   };
 
-  const completeSet = () => {
+  // Move to next set or exercise
+  const advanceWorkout = useCallback(() => {
     if (!currentExercise || !training) return;
 
     setTotalSetsCompleted((prev) => prev + 1);
-    setIsSetTimerRunning(false);
 
     const isLastSet = currentSet >= currentExercise.sets;
     const isLastExercise = currentExerciseIndex >= training.exercises.length - 1;
 
     if (isLastSet && isLastExercise) {
-      // Treino completo
+      // Training complete
       setPhase('finished');
       triggerNotification();
     } else if (isLastSet) {
-      // Próximo exercício
+      // Next exercise
+      const nextEx = training.exercises[currentExerciseIndex + 1];
       setCurrentExerciseIndex((prev) => prev + 1);
       setCurrentSet(1);
 
-      // Inicia descanso se configurado
+      // Start rest if configured, otherwise go straight to next exercise
       if (currentExercise.restSeconds) {
-        setRestTimeLeft(currentExercise.restSeconds);
+        setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
+        triggerNotification();
+      } else if (nextEx?.setDurationSeconds) {
+        setTimeLeft(nextEx.setDurationSeconds);
+        setPhase('working');
       }
     } else {
-      // Próxima série
+      // Next set
       setCurrentSet((prev) => prev + 1);
 
-      // Inicia descanso se configurado
+      // Start rest if configured
       if (currentExercise.restSeconds) {
-        setRestTimeLeft(currentExercise.restSeconds);
+        setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
+        triggerNotification();
+      } else if (currentExercise.setDurationSeconds) {
+        setTimeLeft(currentExercise.setDurationSeconds);
       }
     }
+  }, [currentExercise, currentSet, currentExerciseIndex, training, triggerNotification]);
+
+  // Start next working phase after rest
+  const startNextWorkingPhase = useCallback(() => {
+    if (!training) return;
+
+    const exercise = training.exercises[currentExerciseIndex];
+    if (exercise?.setDurationSeconds) {
+      setTimeLeft(exercise.setDurationSeconds);
+    }
+    setPhase('working');
+    triggerNotification();
+  }, [currentExerciseIndex, training, triggerNotification]);
+
+  // Main timer effect
+  useEffect(() => {
+    if (isPaused || phase === 'finished' || timeLeft <= 0) {
+      return;
+    }
+
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current!);
+
+          // Timer ended - advance to next phase
+          if (phase === 'working') {
+            // Set finished - go to rest or next set
+            setTimeout(() => advanceWorkout(), 100);
+          } else if (phase === 'resting') {
+            // Rest finished - start next working phase
+            setTimeout(() => startNextWorkingPhase(), 100);
+          }
+
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [phase, isPaused, timeLeft, advanceWorkout, startNextWorkingPhase]);
+
+  const togglePause = () => {
+    setIsPaused((prev) => !prev);
   };
 
-  const skipRest = () => {
-    if (restTimerRef.current) clearInterval(restTimerRef.current);
-    setRestTimeLeft(0);
-    setPhase('exercise');
+  const skipPhase = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setTimeLeft(0);
+
+    if (phase === 'working') {
+      advanceWorkout();
+    } else if (phase === 'resting') {
+      startNextWorkingPhase();
+    }
   };
 
   const handleCancel = () => {
@@ -204,7 +275,41 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     );
   }
 
-  // Tela de treino finalizado
+  // No timer configured - show message
+  if (!currentExercise.setDurationSeconds && phase === 'working') {
+    return (
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
+        style={styles.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.container}>
+          <StatusBar style="light" />
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleCancel} style={styles.cancelButton}>
+              <Ionicons name="close" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>{training.name}</Text>
+            <View style={styles.headerSpacer} />
+          </View>
+
+          <View style={styles.noTimerContainer}>
+            <Ionicons name="timer-outline" size={64} color={colors.textMuted} />
+            <Text style={styles.noTimerTitle}>Tempo não configurado</Text>
+            <Text style={styles.noTimerText}>
+              Configure o "Tempo da série" no exercício "{currentExercise.name}" para usar o modo automático.
+            </Text>
+            <TouchableOpacity style={styles.backButton} onPress={onGoToTrainingDetail}>
+              <Text style={styles.backButtonText}>Voltar e Configurar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  // Finished screen
   if (phase === 'finished') {
     return (
       <LinearGradient
@@ -222,6 +327,9 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           <Text style={styles.finishedStats}>
             {totalSetsCompleted} séries • {totalExercises} exercícios
           </Text>
+          <Text style={styles.finishedDuration}>
+            Tempo total: {formatDuration(elapsedTime)}
+          </Text>
           <TouchableOpacity style={styles.finishButton} onPress={onGoBack}>
             <LinearGradient
               colors={[colors.primary, colors.primaryDark]}
@@ -238,6 +346,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   }
 
   const progress = totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0;
+  const isWorking = phase === 'working';
 
   return (
     <LinearGradient
@@ -263,100 +372,94 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
-          <Text style={styles.progressText}>
-            {totalSetsCompleted}/{totalSets} séries
-          </Text>
+          <View style={styles.progressInfo}>
+            <Text style={styles.progressText}>
+              {totalSetsCompleted}/{totalSets} séries
+            </Text>
+            <Text style={styles.durationText}>
+              {formatDuration(elapsedTime)} / {formatDuration(totalDuration)}
+            </Text>
+          </View>
         </View>
 
         {/* Main Content */}
         <View style={styles.content}>
-          {phase === 'resting' ? (
-            /* Rest Phase */
-            <View style={styles.restContainer}>
-              <Text style={styles.restLabel}>DESCANSANDO</Text>
-              <Text style={styles.restTimer}>{formatTime(restTimeLeft)}</Text>
-              <TouchableOpacity style={styles.skipButton} onPress={skipRest}>
-                <Text style={styles.skipButtonText}>Pular Descanso</Text>
-              </TouchableOpacity>
+          {/* Phase Label */}
+          <View style={[styles.phaseLabel, isWorking ? styles.workingLabel : styles.restingLabel]}>
+            <Text style={styles.phaseLabelText}>
+              {isWorking ? 'EXECUTANDO' : 'DESCANSANDO'}
+            </Text>
+          </View>
+
+          {/* Exercise Info */}
+          <Text style={styles.exerciseNumber}>
+            Exercício {currentExerciseIndex + 1}/{totalExercises}
+          </Text>
+          <Text style={styles.exerciseName}>{currentExercise.name}</Text>
+
+          {/* Set Info */}
+          <View style={styles.setInfo}>
+            <Text style={styles.setLabel}>SÉRIE</Text>
+            <Text style={styles.setNumber}>
+              {currentSet}/{currentExercise.sets}
+            </Text>
+          </View>
+
+          {/* Timer */}
+          <View style={styles.timerContainer}>
+            <Text style={[styles.timer, isPaused && styles.timerPaused]}>
+              {formatTime(timeLeft)}
+            </Text>
+            {isPaused && <Text style={styles.pausedText}>PAUSADO</Text>}
+          </View>
+
+          {/* Exercise Details */}
+          <View style={styles.exerciseDetails}>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailValue}>{currentExercise.reps}</Text>
+              <Text style={styles.detailLabel}>repetições</Text>
             </View>
-          ) : (
-            /* Exercise Phase */
-            <View style={styles.exerciseContainer}>
-              <Text style={styles.exerciseNumber}>
-                Exercício {currentExerciseIndex + 1}/{totalExercises}
-              </Text>
-              <Text style={styles.exerciseName}>{currentExercise.name}</Text>
-
-              <View style={styles.setInfo}>
-                <Text style={styles.setLabel}>SÉRIE</Text>
-                <Text style={styles.setNumber}>
-                  {currentSet}/{currentExercise.sets}
-                </Text>
+            {currentExercise.weight && (
+              <View style={styles.detailItem}>
+                <Text style={styles.detailValue}>{currentExercise.weight}kg</Text>
+                <Text style={styles.detailLabel}>peso</Text>
               </View>
-
-              <View style={styles.exerciseDetails}>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailValue}>{currentExercise.reps}</Text>
-                  <Text style={styles.detailLabel}>repetições</Text>
-                </View>
-                {currentExercise.weight && (
-                  <View style={styles.detailItem}>
-                    <Text style={styles.detailValue}>{currentExercise.weight}kg</Text>
-                    <Text style={styles.detailLabel}>peso</Text>
-                  </View>
-                )}
-                {currentExercise.restSeconds && (
-                  <View style={styles.detailItem}>
-                    <Text style={styles.detailValue}>{formatTime(currentExercise.restSeconds)}</Text>
-                    <Text style={styles.detailLabel}>descanso</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Set Duration Timer */}
-              {currentExercise.setDurationSeconds && (
-                <View style={styles.setTimerContainer}>
-                  {isSetTimerRunning ? (
-                    <>
-                      <Text style={styles.setTimerLabel}>TEMPO DA SÉRIE</Text>
-                      <Text style={styles.setTimerValue}>{formatTime(setTimeLeft)}</Text>
-                    </>
-                  ) : (
-                    <TouchableOpacity style={styles.startTimerButton} onPress={startSetTimer}>
-                      <Ionicons name="timer-outline" size={20} color={colors.primary} />
-                      <Text style={styles.startTimerText}>
-                        Iniciar Timer ({formatTime(currentExercise.setDurationSeconds)})
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            </View>
-          )}
+            )}
+          </View>
         </View>
 
         {/* Next Exercise Preview */}
-        {nextExercise && phase === 'exercise' && (
+        {nextExercise && (
           <View style={styles.nextExerciseContainer}>
             <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
             <Text style={styles.nextExerciseName}>{nextExercise.name}</Text>
           </View>
         )}
 
-        {/* Complete Set Button */}
-        {phase === 'exercise' && (
-          <TouchableOpacity style={styles.completeButton} onPress={completeSet}>
+        {/* Control Buttons */}
+        <View style={styles.controlsContainer}>
+          <TouchableOpacity style={styles.skipButton} onPress={skipPhase}>
+            <Ionicons name="play-forward" size={24} color={colors.textSecondary} />
+            <Text style={styles.skipButtonText}>Pular</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.pauseButton} onPress={togglePause}>
             <LinearGradient
-              colors={[colors.primary, colors.primaryDark]}
-              style={styles.completeButtonGradient}
+              colors={isPaused ? [colors.primary, colors.primaryDark] : [colors.cardBackground, colors.cardBackground]}
+              style={styles.pauseButtonGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
             >
-              <Ionicons name="checkmark" size={32} color={colors.textPrimary} />
-              <Text style={styles.completeButtonText}>Completar Série</Text>
+              <Ionicons
+                name={isPaused ? 'play' : 'pause'}
+                size={32}
+                color={isPaused ? colors.textPrimary : colors.textSecondary}
+              />
             </LinearGradient>
           </TouchableOpacity>
-        )}
+
+          <View style={styles.controlSpacer} />
+        </View>
       </View>
     </LinearGradient>
   );
@@ -418,53 +521,43 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: 4,
   },
+  progressInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
   progressText: {
     color: colors.textSecondary,
     fontSize: 12,
-    marginTop: 8,
-    textAlign: 'center',
+  },
+  durationText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
-  },
-  // Rest Phase
-  restContainer: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  restLabel: {
-    color: colors.textSecondary,
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 2,
-    marginBottom: 16,
-  },
-  restTimer: {
-    color: colors.primary,
-    fontSize: 72,
-    fontWeight: '700',
-    marginBottom: 32,
-  },
-  skipButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+  phaseLabel: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: colors.cardBackground,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
+    marginBottom: 20,
   },
-  skipButtonText: {
-    color: colors.textSecondary,
+  workingLabel: {
+    backgroundColor: 'rgba(255, 59, 92, 0.2)',
+  },
+  restingLabel: {
+    backgroundColor: 'rgba(52, 199, 89, 0.2)',
+  },
+  phaseLabelText: {
+    color: colors.textPrimary,
     fontSize: 14,
-    fontWeight: '600',
-  },
-  // Exercise Phase
-  exerciseContainer: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 20,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   exerciseNumber: {
     color: colors.textSecondary,
@@ -476,33 +569,51 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   setInfo: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   setLabel: {
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 2,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   setNumber: {
     color: colors.primary,
-    fontSize: 48,
+    fontSize: 32,
     fontWeight: '700',
+  },
+  timerContainer: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  timer: {
+    color: colors.textPrimary,
+    fontSize: 80,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  timerPaused: {
+    opacity: 0.5,
+  },
+  pausedText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
   },
   exerciseDetails: {
     flexDirection: 'row',
-    gap: 24,
-    marginBottom: 24,
+    gap: 16,
   },
   detailItem: {
     alignItems: 'center',
     backgroundColor: colors.cardBackground,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
@@ -518,39 +629,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 4,
   },
-  setTimerContainer: {
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  setTimerLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 2,
-    marginBottom: 8,
-  },
-  setTimerValue: {
-    color: colors.textPrimary,
-    fontSize: 36,
-    fontWeight: '700',
-  },
-  startTimerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
-    backgroundColor: colors.cardBackground,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-  },
-  startTimerText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  // Next Exercise
   nextExerciseContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
@@ -569,23 +647,77 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  // Complete Button
-  completeButton: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  completeButtonGradient: {
+  controlsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingVertical: 18,
-    borderRadius: 16,
+    justifyContent: 'space-between',
+    paddingHorizontal: 40,
+    paddingBottom: 50,
   },
-  completeButtonText: {
+  skipButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    backgroundColor: colors.cardBackground,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  skipButtonText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pauseButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    overflow: 'hidden',
+  },
+  pauseButtonGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: 35,
+  },
+  controlSpacer: {
+    width: 100,
+  },
+  // No timer configured
+  noTimerContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  noTimerTitle: {
     color: colors.textPrimary,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '700',
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  noTimerText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  backButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  backButtonText: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   // Finished
   finishedContainer: {
@@ -619,7 +751,14 @@ const styles = StyleSheet.create({
   finishedStats: {
     color: colors.textMuted,
     fontSize: 14,
+    marginBottom: 8,
+  },
+  finishedDuration: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: 40,
+    fontVariant: ['tabular-nums'],
   },
   finishButton: {
     width: '100%',

@@ -12,11 +12,10 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import DraggableFlatList, { ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { colors } from '../theme/colors';
 import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
 import { TimerPickerModal, TimerButton, TimerPresets } from '../components/TimerPickerModal';
+import { DraggableList } from '../components/DraggableList';
 
 interface TrainingDetailProps {
   trainingId: string;
@@ -38,6 +37,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   // Native picker state
   const [showRestPicker, setShowRestPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const isEditing = editingExerciseId !== null;
 
@@ -129,78 +129,68 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     setSetDuration(undefined);
   };
 
-  const renderExerciseItem = ({ item: exercise, drag, isActive, getIndex }: RenderItemParams<Exercise>) => {
-    const index = getIndex() ?? 0;
-
+  const renderExerciseItem = (exercise: Exercise, index: number, isDragging: boolean) => {
     return (
-      <ScaleDecorator>
-        <TouchableOpacity
-          style={[styles.exerciseCard, isActive && styles.exerciseCardDragging]}
-          onPress={() => handleOpenEditModal(exercise)}
-          onLongPress={drag}
-          delayLongPress={150}
-          activeOpacity={0.7}
-        >
-          <View style={styles.exerciseHeader}>
-            <TouchableOpacity onLongPress={drag} delayLongPress={50} style={styles.dragHandle}>
-              <Ionicons name="menu" size={20} color={colors.textMuted} />
-            </TouchableOpacity>
-            <View style={styles.exerciseNumber}>
-              <Text style={styles.exerciseNumberText}>{index + 1}</Text>
-            </View>
-            <Text style={styles.exerciseName}>{exercise.name}</Text>
-            <TouchableOpacity
-              onPress={() => handleDeleteExercise(exercise.id)}
-              style={styles.deleteButton}
-            >
-              <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
+      <View style={[styles.exerciseCard, isDragging && styles.exerciseCardDragging]}>
+        <View style={styles.exerciseHeader}>
+          <View style={styles.dragHandle}>
+            <Ionicons name="menu" size={20} color={isDragging ? colors.primary : colors.textMuted} />
           </View>
+          <View style={styles.exerciseNumber}>
+            <Text style={styles.exerciseNumberText}>{index + 1}</Text>
+          </View>
+          <Text style={styles.exerciseName}>{exercise.name}</Text>
+          <TouchableOpacity
+            onPress={() => handleDeleteExercise(exercise.id)}
+            style={styles.deleteButton}
+          >
+            <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.exerciseStats}>
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{exercise.sets}</Text>
-              <Text style={styles.statLabel}>séries</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.stat}>
-              <Text style={styles.statValue}>{exercise.reps}</Text>
-              <Text style={styles.statLabel}>reps</Text>
-            </View>
-            {exercise.restSeconds && (
-              <>
-                <View style={styles.statDivider} />
-                <View style={styles.stat}>
-                  <Text style={styles.statValue}>{formatTime(exercise.restSeconds)}</Text>
-                  <Text style={styles.statLabel}>descanso</Text>
-                </View>
-              </>
-            )}
-            {exercise.weight && (
-              <>
-                <View style={styles.statDivider} />
-                <View style={styles.stat}>
-                  <Text style={styles.statValue}>{exercise.weight}kg</Text>
-                  <Text style={styles.statLabel}>peso</Text>
-                </View>
-              </>
-            )}
-            {exercise.setDurationSeconds && (
-              <>
-                <View style={styles.statDivider} />
-                <View style={styles.stat}>
-                  <Text style={styles.statValue}>{formatTime(exercise.setDurationSeconds)}</Text>
-                  <Text style={styles.statLabel}>tempo</Text>
-                </View>
-              </>
-            )}
+        <View style={styles.exerciseStats}>
+          <View style={styles.stat}>
+            <Text style={styles.statValue}>{exercise.sets}</Text>
+            <Text style={styles.statLabel}>séries</Text>
           </View>
-          <View style={styles.editHint}>
-            <Ionicons name="pencil" size={12} color={colors.textMuted} />
-            <Text style={styles.editHintText}>Toque para editar • Segure para arrastar</Text>
+          <View style={styles.statDivider} />
+          <View style={styles.stat}>
+            <Text style={styles.statValue}>{exercise.reps}</Text>
+            <Text style={styles.statLabel}>reps</Text>
           </View>
-        </TouchableOpacity>
-      </ScaleDecorator>
+          {exercise.restSeconds && (
+            <>
+              <View style={styles.statDivider} />
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{formatTime(exercise.restSeconds)}</Text>
+                <Text style={styles.statLabel}>descanso</Text>
+              </View>
+            </>
+          )}
+          {exercise.weight && (
+            <>
+              <View style={styles.statDivider} />
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{exercise.weight}kg</Text>
+                <Text style={styles.statLabel}>peso</Text>
+              </View>
+            </>
+          )}
+          {exercise.setDurationSeconds && (
+            <>
+              <View style={styles.statDivider} />
+              <View style={styles.stat}>
+                <Text style={styles.statValue}>{formatTime(exercise.setDurationSeconds)}</Text>
+                <Text style={styles.statLabel}>tempo</Text>
+              </View>
+            </>
+          )}
+        </View>
+        <View style={styles.editHint}>
+          <Ionicons name="pencil" size={12} color={colors.textMuted} />
+          <Text style={styles.editHintText}>Toque para editar • Segure e arraste para ordenar</Text>
+        </View>
+      </View>
     );
   };
 
@@ -213,47 +203,55 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   }
 
   return (
-    <GestureHandlerRootView style={styles.gestureRoot}>
-      <LinearGradient
-        colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
-        style={styles.gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <View style={styles.safeArea}>
-          <StatusBar style="light" />
+    <LinearGradient
+      colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
+      style={styles.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+    >
+      <View style={styles.safeArea}>
+        <StatusBar style="light" />
 
-          <View style={styles.header}>
-            <TouchableOpacity onPress={onGoBack} style={styles.backButton}>
-              <Ionicons name="chevron-back" size={28} color={colors.textPrimary} />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {training.name}
-            </Text>
-            <View style={styles.headerSpacer} />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onGoBack} style={styles.backButton}>
+            <Ionicons name="chevron-back" size={28} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {training.name}
+          </Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={styles.exerciseCountContainer}>
+          <Text style={styles.exerciseCount}>
+            {training.exercises.length} exercício{training.exercises.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
+
+        {training.exercises.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="fitness-outline" size={48} color={colors.textMuted} />
+            <Text style={styles.emptyText}>Nenhum exercício adicionado</Text>
+            <Text style={styles.emptySubtext}>Toque no + para adicionar</Text>
           </View>
-
-          <View style={styles.exerciseCountContainer}>
-            <Text style={styles.exerciseCount}>
-              {training.exercises.length} exercício{training.exercises.length !== 1 ? 's' : ''}
-            </Text>
-          </View>
-
-          {training.exercises.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="fitness-outline" size={48} color={colors.textMuted} />
-              <Text style={styles.emptyText}>Nenhum exercício adicionado</Text>
-              <Text style={styles.emptySubtext}>Toque no + para adicionar</Text>
-            </View>
-          ) : (
-            <DraggableFlatList
+        ) : (
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!isDragging}
+          >
+            <DraggableList
               data={training.exercises}
               renderItem={renderExerciseItem}
               keyExtractor={(item) => item.id}
-              onDragEnd={({ data }) => handleReorderExercises(data)}
+              onReorder={handleReorderExercises}
+              onItemTap={(exercise) => handleOpenEditModal(exercise)}
+              onDragStart={() => setIsDragging(true)}
+              onDragEnd={() => setIsDragging(false)}
               contentContainerStyle={styles.listContent}
             />
-          )}
+          </ScrollView>
+        )}
 
         <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)}>
           <LinearGradient
@@ -391,21 +389,20 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           onChange={setSetDuration}
         />
       </View>
-      </LinearGradient>
-    </GestureHandlerRootView>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  gestureRoot: {
-    flex: 1,
-  },
   gradient: {
     flex: 1,
   },
   safeArea: {
     flex: 1,
     paddingTop: 60,
+  },
+  scrollView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
