@@ -8,14 +8,15 @@ import {
   TextInput,
   Alert,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../theme/colors';
 import { trainingStorage, Exercise, formatTime } from '../services/trainingStorage';
-import { TimerButton, TimerPresets } from '../components/TimerPickerModal';
+import { TimerPickerModal, TimerButton, TimerPresets, REST_PRESETS } from '../components/TimerPickerModal';
 
 interface AddTrainingProps {
   onGoBack: () => void;
@@ -33,56 +34,21 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [exerciseName, setExerciseName] = useState('');
-  const [sets, setSets] = useState('3');
-  const [reps, setReps] = useState('12');
+  const [sets, setSets] = useState('');
+  const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
   const [restSeconds, setRestSeconds] = useState<number | undefined>(undefined);
   const [setDuration, setSetDuration] = useState<number | undefined>(undefined);
 
-  // Native picker state
+  // Timer picker state
   const [showRestPicker, setShowRestPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
 
-  const handleOpenRestPicker = () => {
-    setShowRestPicker(true);
-  };
-
-  const handleOpenDurationPicker = () => {
-    setShowDurationPicker(true);
-  };
-
-  // Funções auxiliares para o DateTimePicker (suporta horas, minutos e segundos)
-  const secondsToDate = (seconds: number | undefined): Date => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    if (seconds) {
-      const hours = Math.floor(seconds / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const secs = seconds % 60;
-      date.setHours(hours, minutes, secs, 0);
-    } else {
-      date.setHours(0, 1, 0, 0); // Default: 1 minuto
-    }
-    return date;
-  };
-
-  const dateToSeconds = (date: Date): number => {
-    return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
-  };
-
-  const handleRestChange = (event: any, selectedDate?: Date) => {
-    if (selectedDate) {
-      const seconds = dateToSeconds(selectedDate);
-      setRestSeconds(seconds > 0 ? seconds : undefined);
-    }
-  };
-
-  const handleDurationChange = (event: any, selectedDate?: Date) => {
-    if (selectedDate) {
-      const seconds = dateToSeconds(selectedDate);
-      setSetDuration(seconds > 0 ? seconds : undefined);
-    }
-  };
+  // Menu de seleção de tipo e modal de descanso
+  const [showTypeMenu, setShowTypeMenu] = useState(false);
+  const [showRestModal, setShowRestModal] = useState(false);
+  const [restCardDuration, setRestCardDuration] = useState<number | undefined>(undefined);
+  const [showRestCardPicker, setShowRestCardPicker] = useState(false);
 
   const handleSave = async () => {
     if (!trainingName.trim()) return;
@@ -97,11 +63,13 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
       for (const exercise of exercises) {
         await trainingStorage.addExercise(newTraining.id, {
           name: exercise.name,
+          type: exercise.type,
           sets: exercise.sets,
           reps: exercise.reps,
           weight: exercise.weight,
           restSeconds: exercise.restSeconds,
           setDurationSeconds: exercise.setDurationSeconds,
+          durationSeconds: exercise.durationSeconds,
         });
       }
 
@@ -118,8 +86,9 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
     const newExercise: TempExercise = {
       tempId: Date.now().toString(),
       name: exerciseName.trim(),
-      sets: parseInt(sets) || 3,
-      reps: parseInt(reps) || 12,
+      type: 'exercise',
+      sets: sets ? parseInt(sets) : undefined,
+      reps: reps ? parseInt(reps) : undefined,
       weight: weight ? parseFloat(weight) : undefined,
       restSeconds: restSeconds,
       setDurationSeconds: setDuration,
@@ -130,17 +99,50 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
     resetExerciseForm();
   };
 
+  const handleAddRestCard = () => {
+    if (!restCardDuration) return;
+
+    const newRest: TempExercise = {
+      tempId: Date.now().toString(),
+      name: 'Descanso',
+      type: 'rest',
+      durationSeconds: restCardDuration,
+    };
+
+    setExercises([...exercises, newRest]);
+    setShowRestModal(false);
+    resetRestForm();
+  };
+
   const handleRemoveExercise = (tempId: string) => {
     setExercises(exercises.filter((e) => e.tempId !== tempId));
   };
 
   const resetExerciseForm = () => {
     setExerciseName('');
-    setSets('3');
-    setReps('12');
+    setSets('');
+    setReps('');
     setWeight('');
     setRestSeconds(undefined);
     setSetDuration(undefined);
+  };
+
+  const resetRestForm = () => {
+    setRestCardDuration(undefined);
+  };
+
+  const handleAddButtonPress = () => {
+    setShowTypeMenu(true);
+  };
+
+  const handleSelectExerciseType = () => {
+    setShowTypeMenu(false);
+    setShowModal(true);
+  };
+
+  const handleSelectRestType = () => {
+    setShowTypeMenu(false);
+    setShowRestModal(true);
   };
 
   const isFormValid = trainingName.trim().length > 0 && !saving;
@@ -209,7 +211,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
               <Text style={styles.label}>Exercícios ({exercises.length})</Text>
               <TouchableOpacity
                 style={styles.addExerciseButton}
-                onPress={() => setShowModal(true)}
+                onPress={handleAddButtonPress}
               >
                 <Ionicons name="add" size={20} color={colors.primary} />
                 <Text style={styles.addExerciseText}>Adicionar</Text>
@@ -219,68 +221,86 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
             {exercises.length === 0 ? (
               <TouchableOpacity
                 style={styles.emptyExercises}
-                onPress={() => setShowModal(true)}
+                onPress={handleAddButtonPress}
               >
                 <Ionicons name="fitness-outline" size={32} color={colors.textMuted} />
                 <Text style={styles.emptyText}>Toque para adicionar exercícios</Text>
               </TouchableOpacity>
             ) : (
               <View style={styles.exerciseList}>
-                {exercises.map((exercise, index) => (
-                  <View key={exercise.tempId} style={styles.exerciseCard}>
-                    <View style={styles.exerciseHeader}>
-                      <View style={styles.exerciseNumber}>
-                        <Text style={styles.exerciseNumberText}>{index + 1}</Text>
+                {exercises.map((exercise, index) => {
+                  // Calcula o número do exercício (não conta rest cards)
+                  const exerciseNumber = exercises.slice(0, index + 1).filter(e => e.type !== 'rest').length;
+                  return exercise.type === 'rest' ? (
+                    // Card de descanso
+                    <View key={exercise.tempId} style={styles.restCard}>
+                      <View style={styles.exerciseHeader}>
+                        <View style={styles.restIconContainer}>
+                          <Ionicons name="cafe-outline" size={18} color={colors.textPrimary} />
+                        </View>
+                        <Text style={styles.restCardTitle}>Descanso</Text>
+                        <TouchableOpacity
+                          onPress={() => handleRemoveExercise(exercise.tempId)}
+                          style={styles.deleteButton}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
                       </View>
-                      <Text style={styles.exerciseName}>{exercise.name}</Text>
-                      <TouchableOpacity
-                        onPress={() => handleRemoveExercise(exercise.tempId)}
-                        style={styles.deleteButton}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
-                      </TouchableOpacity>
+                      <View style={styles.restCardContent}>
+                        <Ionicons name="time-outline" size={24} color={colors.rest} />
+                        <Text style={styles.restCardTime}>
+                          {exercise.durationSeconds ? formatTime(exercise.durationSeconds) : '0:00'}
+                        </Text>
+                      </View>
                     </View>
+                  ) : (
+                    // Card de exercício normal
+                    <View key={exercise.tempId} style={styles.exerciseCard}>
+                      <View style={styles.exerciseHeader}>
+                        <View style={styles.exerciseNumber}>
+                          <Text style={styles.exerciseNumberText}>{exerciseNumber}</Text>
+                        </View>
+                        <Text style={styles.exerciseName}>{exercise.name}</Text>
+                        <TouchableOpacity
+                          onPress={() => handleRemoveExercise(exercise.tempId)}
+                          style={styles.deleteButton}
+                        >
+                          <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
+                      </View>
 
-                    <View style={styles.exerciseStats}>
-                      <View style={styles.stat}>
-                        <Text style={styles.statValue}>{exercise.sets}</Text>
-                        <Text style={styles.statLabel}>séries</Text>
-                      </View>
-                      <View style={styles.statDivider} />
-                      <View style={styles.stat}>
-                        <Text style={styles.statValue}>{exercise.reps}</Text>
-                        <Text style={styles.statLabel}>reps</Text>
-                      </View>
-                      {exercise.restSeconds && (
-                        <>
-                          <View style={styles.statDivider} />
-                          <View style={styles.stat}>
-                            <Text style={styles.statValue}>{formatTime(exercise.restSeconds)}</Text>
-                            <Text style={styles.statLabel}>descanso</Text>
-                          </View>
-                        </>
-                      )}
-                      {exercise.weight && (
-                        <>
-                          <View style={styles.statDivider} />
-                          <View style={styles.stat}>
-                            <Text style={styles.statValue}>{exercise.weight}kg</Text>
-                            <Text style={styles.statLabel}>peso</Text>
-                          </View>
-                        </>
-                      )}
-                      {exercise.setDurationSeconds && (
-                        <>
-                          <View style={styles.statDivider} />
-                          <View style={styles.stat}>
-                            <Text style={styles.statValue}>{formatTime(exercise.setDurationSeconds)}</Text>
-                            <Text style={styles.statLabel}>tempo</Text>
-                          </View>
-                        </>
-                      )}
+                      {(() => {
+                        const stats: Array<{ value: string; label: string }> = [];
+                        if (exercise.sets !== undefined) stats.push({ value: String(exercise.sets), label: 'séries' });
+                        if (exercise.reps !== undefined) stats.push({ value: String(exercise.reps), label: 'reps' });
+                        if (exercise.restSeconds) stats.push({ value: formatTime(exercise.restSeconds), label: 'descanso' });
+                        if (exercise.weight) stats.push({ value: `${exercise.weight}kg`, label: 'peso' });
+                        if (exercise.setDurationSeconds) stats.push({ value: formatTime(exercise.setDurationSeconds), label: 'tempo' });
+
+                        if (stats.length === 0) return null;
+
+                        return (
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.exerciseStatsScroll}
+                            contentContainerStyle={[styles.exerciseStats, styles.exerciseStatsCentered]}
+                          >
+                            {stats.map((stat, idx) => (
+                              <React.Fragment key={stat.label}>
+                                {idx > 0 && <View style={styles.statDivider} />}
+                                <View style={styles.stat}>
+                                  <Text style={styles.statValue}>{stat.value}</Text>
+                                  <Text style={styles.statLabel}>{stat.label}</Text>
+                                </View>
+                              </React.Fragment>
+                            ))}
+                          </ScrollView>
+                        );
+                      })()}
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             )}
           </View>
@@ -310,7 +330,10 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
           transparent
           presentationStyle="overFullScreen"
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Novo Exercício</Text>
@@ -322,6 +345,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
               >
                 <View style={styles.modalInputGroup}>
                   <Text style={styles.modalLabel}>Nome do exercício</Text>
@@ -336,10 +360,10 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
 
                 <View style={styles.row}>
                   <View style={[styles.modalInputGroup, styles.flex1]}>
-                    <Text style={styles.modalLabel}>Séries</Text>
+                    <Text style={styles.modalLabel}>Séries - opcional</Text>
                     <TextInput
                       style={styles.modalInput}
-                      placeholder="3"
+                      placeholder="Ex: 3"
                       placeholderTextColor={colors.textMuted}
                       value={sets}
                       onChangeText={setSets}
@@ -348,10 +372,10 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   </View>
                   <View style={styles.gap} />
                   <View style={[styles.modalInputGroup, styles.flex1]}>
-                    <Text style={styles.modalLabel}>Repetições</Text>
+                    <Text style={styles.modalLabel}>Repetições - opcional</Text>
                     <TextInput
                       style={styles.modalInput}
-                      placeholder="12"
+                      placeholder="Ex: 12"
                       placeholderTextColor={colors.textMuted}
                       value={reps}
                       onChangeText={setReps}
@@ -372,30 +396,33 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   />
                 </View>
 
-                {/* Intervalo entre séries */}
-                <View style={styles.modalInputGroup}>
-                  <Text style={styles.modalLabel}>Intervalo entre séries - opcional</Text>
-                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} />
-                  <TimerButton
-                    value={restSeconds}
-                    onPress={handleOpenRestPicker}
-                    onClear={() => setRestSeconds(undefined)}
-                    icon="timer-outline"
-                  />
-                </View>
-
                 {/* Tempo da série */}
                 <View style={styles.modalInputGroup}>
                   <Text style={styles.modalLabel}>Tempo da série - opcional</Text>
                   <TimerPresets value={setDuration} onSelect={setSetDuration} />
                   <TimerButton
                     value={setDuration}
-                    onPress={handleOpenDurationPicker}
+                    onPress={() => setShowDurationPicker(true)}
                     onClear={() => setSetDuration(undefined)}
                     icon="stopwatch-outline"
                   />
                 </View>
 
+                {/* Descanso entre séries */}
+                <View style={styles.modalInputGroup}>
+                  <Text style={styles.modalLabel}>Descanso entre séries - opcional</Text>
+                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} presets={REST_PRESETS} />
+                  <TimerButton
+                    value={restSeconds}
+                    onPress={() => setShowRestPicker(true)}
+                    onClear={() => setRestSeconds(undefined)}
+                    icon="timer-outline"
+                  />
+                </View>
+              </ScrollView>
+
+              {/* Botão fixo na parte inferior */}
+              <View style={styles.modalFooter}>
                 <TouchableOpacity
                   style={[
                     styles.modalSaveButton,
@@ -406,72 +433,128 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                 >
                   <Text style={styles.modalSaveButtonText}>Adicionar Exercício</Text>
                 </TouchableOpacity>
-              </ScrollView>
+              </View>
 
-              {/* Picker Overlay - Intervalo */}
-              {showRestPicker && (
-                <TouchableOpacity
-                  style={styles.pickerOverlay}
-                  activeOpacity={1}
-                  onPress={() => setShowRestPicker(false)}
-                >
-                  <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-                    <View style={styles.pickerContent}>
-                      <View style={styles.pickerHeader}>
-                        <Text style={styles.pickerTitle}>Intervalo entre séries</Text>
-                        <TouchableOpacity onPress={() => setShowRestPicker(false)}>
-                          <Text style={styles.pickerDone}>OK</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.pickerLabels}>
-                        <Text style={styles.pickerLabel}>horas</Text>
-                        <Text style={styles.pickerLabel}>min</Text>
-                      </View>
-                      <DateTimePicker
-                        value={secondsToDate(restSeconds)}
-                        mode="countdown"
-                        display="spinner"
-                        onChange={handleRestChange}
-                        themeVariant="dark"
-                      />
-                    </View>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              )}
+              {/* Timer Picker Modals */}
+              <TimerPickerModal
+                visible={showRestPicker}
+                title="Descanso entre séries"
+                value={restSeconds}
+                onClose={() => setShowRestPicker(false)}
+                onChange={setRestSeconds}
+              />
 
-              {/* Picker Overlay - Duração */}
-              {showDurationPicker && (
-                <TouchableOpacity
-                  style={styles.pickerOverlay}
-                  activeOpacity={1}
-                  onPress={() => setShowDurationPicker(false)}
-                >
-                  <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-                    <View style={styles.pickerContent}>
-                      <View style={styles.pickerHeader}>
-                        <Text style={styles.pickerTitle}>Tempo da série</Text>
-                        <TouchableOpacity onPress={() => setShowDurationPicker(false)}>
-                          <Text style={styles.pickerDone}>OK</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.pickerLabels}>
-                        <Text style={styles.pickerLabel}>horas</Text>
-                        <Text style={styles.pickerLabel}>min</Text>
-                      </View>
-                      <DateTimePicker
-                        value={secondsToDate(setDuration)}
-                        mode="countdown"
-                        display="spinner"
-                        onChange={handleDurationChange}
-                        themeVariant="dark"
-                      />
-                    </View>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              )}
+              <TimerPickerModal
+                visible={showDurationPicker}
+                title="Tempo da série"
+                value={setDuration}
+                onClose={() => setShowDurationPicker(false)}
+                onChange={setSetDuration}
+              />
 
             </View>
-          </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* Menu de seleção de tipo */}
+        <Modal
+          visible={showTypeMenu}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowTypeMenu(false)}
+        >
+          <TouchableOpacity
+            style={styles.typeMenuOverlay}
+            activeOpacity={1}
+            onPress={() => setShowTypeMenu(false)}
+          >
+            <View style={styles.typeMenuContent}>
+              <Text style={styles.typeMenuTitle}>Adicionar</Text>
+
+              <TouchableOpacity style={styles.typeMenuItem} onPress={handleSelectExerciseType}>
+                <View style={[styles.typeMenuIcon, { backgroundColor: colors.primary }]}>
+                  <Ionicons name="fitness-outline" size={24} color={colors.textPrimary} />
+                </View>
+                <View style={styles.typeMenuTextContainer}>
+                  <Text style={styles.typeMenuItemTitle}>Exercício</Text>
+                  <Text style={styles.typeMenuItemSubtitle}>Adicione séries, reps, peso...</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.typeMenuItem} onPress={handleSelectRestType}>
+                <View style={[styles.typeMenuIcon, { backgroundColor: colors.rest }]}>
+                  <Ionicons name="cafe-outline" size={24} color={colors.textPrimary} />
+                </View>
+                <View style={styles.typeMenuTextContainer}>
+                  <Text style={styles.typeMenuItemTitle}>Descanso</Text>
+                  <Text style={styles.typeMenuItemSubtitle}>Pausa entre exercícios</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Modal para adicionar descanso */}
+        <Modal
+          visible={showRestModal}
+          animationType="slide"
+          transparent
+          presentationStyle="overFullScreen"
+        >
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.restModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Novo Descanso</Text>
+                <TouchableOpacity onPress={() => { setShowRestModal(false); resetRestForm(); }}>
+                  <Ionicons name="close" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.restModalBody}>
+                <View style={styles.restModalIconContainer}>
+                  <Ionicons name="cafe-outline" size={48} color={colors.rest} />
+                </View>
+                <Text style={styles.restModalDescription}>
+                  Adicione um intervalo de descanso entre os exercícios
+                </Text>
+
+                <View style={[styles.modalInputGroup, { width: '100%' }]}>
+                  <Text style={styles.modalLabel}>Tempo de descanso</Text>
+                  <TimerPresets value={restCardDuration} onSelect={setRestCardDuration} presets={REST_PRESETS} accentColor={colors.rest} />
+                  <TimerButton
+                    value={restCardDuration}
+                    onPress={() => setShowRestCardPicker(true)}
+                    onClear={() => setRestCardDuration(undefined)}
+                    icon="time-outline"
+                    placeholder="Toque para definir o tempo"
+                    accentColor={colors.rest}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.restSaveButton, !restCardDuration && styles.modalSaveButtonDisabled]}
+                  onPress={handleAddRestCard}
+                  disabled={!restCardDuration}
+                >
+                  <Text style={styles.modalSaveButtonText}>Adicionar Descanso</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TimerPickerModal
+                visible={showRestCardPicker}
+                title="Tempo de descanso"
+                value={restCardDuration}
+                onClose={() => setShowRestCardPicker(false)}
+                onChange={setRestCardDuration}
+                accentColor={colors.rest}
+              />
+            </View>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     </LinearGradient>
@@ -602,6 +685,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.cardBorder,
   },
+  // Rest card styles
+  restCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: colors.rest,
+  },
+  restIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.rest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  restCardTitle: {
+    color: colors.rest,
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+  restCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+  },
+  restCardTime: {
+    color: colors.rest,
+    fontSize: 28,
+    fontWeight: '700',
+  },
   exerciseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -634,16 +754,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  exerciseStatsScroll: {
+    backgroundColor: colors.background,
+    borderRadius: 12,
+  },
   exerciseStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background,
-    borderRadius: 12,
     padding: 12,
+    gap: 4,
+  },
+  exerciseStatsCentered: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   stat: {
-    flex: 1,
     alignItems: 'center',
+    paddingHorizontal: 12,
+    minWidth: 50,
   },
   statValue: {
     color: colors.textPrimary,
@@ -698,8 +826,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    paddingTop: 24,
+    paddingHorizontal: 24,
     maxHeight: '90%',
   },
   modalHeader: {
@@ -707,6 +835,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 24,
+  },
+  modalScrollContent: {
+    paddingBottom: 16,
+  },
+  modalFooter: {
+    paddingVertical: 16,
+    paddingBottom: Platform.OS === 'android' ? 32 : 24,
   },
   modalTitle: {
     color: colors.textPrimary,
@@ -746,7 +881,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
-    marginTop: 8,
   },
   modalSaveButtonDisabled: {
     backgroundColor: colors.inactive,
@@ -756,57 +890,89 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Picker Overlay Styles (absolute dentro do modal)
-  pickerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+  // Type menu styles
+  typeMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    borderRadius: 24,
+    padding: 24,
   },
-  pickerContent: {
+  typeMenuContent: {
     backgroundColor: colors.cardBackground,
     borderRadius: 20,
+    padding: 24,
     width: '100%',
     maxWidth: 340,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
   },
-  pickerHeader: {
+  typeMenuTitle: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  typeMenuItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.cardBorder,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    marginBottom: 12,
   },
-  pickerTitle: {
+  typeMenuIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  typeMenuTextContainer: {
+    flex: 1,
+  },
+  typeMenuItemTitle: {
     color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  pickerDone: {
-    color: colors.primary,
     fontSize: 16,
     fontWeight: '600',
   },
-  pickerLabels: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 80,
-    paddingTop: 16,
+  typeMenuItemSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 2,
   },
-  pickerLabel: {
+  // Rest modal styles
+  restModalContent: {
+    backgroundColor: colors.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+  },
+  restModalBody: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    width: '100%',
+  },
+  restModalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(52, 199, 89, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  restModalDescription: {
     color: colors.textSecondary,
     fontSize: 14,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  restSaveButton: {
+    backgroundColor: colors.rest,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
   },
 });

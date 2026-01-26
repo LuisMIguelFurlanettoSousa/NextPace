@@ -26,4 +26,8 @@ export const colors = {
   // States - cinza escuro sólido para inativos
   success: '#4ADE80',
   inactive: '#2c2c2e',
+
+  // Rest/Descanso - verde
+  rest: '#34C759',
+  restDark: '#2AA74A',
 };

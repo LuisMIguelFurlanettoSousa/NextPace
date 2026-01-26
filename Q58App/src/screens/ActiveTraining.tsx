@@ -75,7 +75,11 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     setTraining(data);
     if (data && data.exercises.length > 0) {
       const firstExercise = data.exercises[0];
-      if (firstExercise.setDurationSeconds) {
+      // Se for um card de descanso, inicia em fase de descanso
+      if (firstExercise.type === 'rest') {
+        setTimeLeft(firstExercise.durationSeconds || 0);
+        setPhase('resting');
+      } else if (firstExercise.setDurationSeconds) {
         setTimeLeft(firstExercise.setDurationSeconds);
       }
     }
@@ -89,7 +93,11 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       player.play();
       // Stop after 1 second
       setTimeout(() => {
-        player.pause();
+        try {
+          player.pause();
+        } catch (e) {
+          // Player may have been destroyed
+        }
       }, 1000);
     } catch (e) {
       console.log('Error playing start beep:', e);
@@ -111,13 +119,18 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
 
   const currentExercise: Exercise | undefined = training?.exercises[currentExerciseIndex];
   const nextExercise: Exercise | undefined = training?.exercises[currentExerciseIndex + 1];
-  const totalExercises = training?.exercises.length || 0;
-  const totalSets = training?.exercises.reduce((acc, ex) => acc + ex.sets, 0) || 0;
+  // Conta apenas exercícios reais (sem rest cards)
+  const totalExercises = training?.exercises.filter(ex => ex.type !== 'rest').length || 0;
+  // Calcula o índice do exercício atual (sem contar rest cards)
+  const currentExerciseNumber = training?.exercises.slice(0, currentExerciseIndex + 1).filter(ex => ex.type !== 'rest').length || 0;
+  // Conta sets apenas de exercícios reais
+  const totalSets = training?.exercises.filter(ex => ex.type !== 'rest').reduce((acc, ex) => acc + (ex.sets || 1), 0) || 0;
 
   // Calculate total training duration in seconds
   const totalDuration = training?.exercises.reduce((total, ex) => {
-    const workTime = (ex.setDurationSeconds || 0) * ex.sets;
-    const restTime = (ex.restSeconds || 0) * (ex.sets - 1); // rest between sets
+    const sets = ex.sets || 1;
+    const workTime = (ex.setDurationSeconds || 0) * sets;
+    const restTime = (ex.restSeconds || 0) * Math.max(0, sets - 1); // rest between sets
     return total + workTime + restTime;
   }, 0) || 0;
 
@@ -130,8 +143,9 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     // Add time from fully completed exercises
     for (let i = 0; i < currentExerciseIndex; i++) {
       const ex = training.exercises[i];
-      elapsed += (ex.setDurationSeconds || 0) * ex.sets;
-      elapsed += (ex.restSeconds || 0) * (ex.sets - 1);
+      const sets = ex.sets || 1;
+      elapsed += (ex.setDurationSeconds || 0) * sets;
+      elapsed += (ex.restSeconds || 0) * Math.max(0, sets - 1);
     }
 
     // Add time from current exercise
@@ -183,23 +197,31 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   const advanceWorkout = useCallback(() => {
     if (!currentExercise || !training) return;
 
-    setTotalSetsCompleted((prev) => prev + 1);
+    // Se for um card de descanso, não conta como set completado
+    if (currentExercise.type !== 'rest') {
+      setTotalSetsCompleted((prev) => prev + 1);
+    }
 
-    const isLastSet = currentSet >= currentExercise.sets;
+    const exerciseSets = currentExercise.type === 'rest' ? 1 : (currentExercise.sets || 1);
+    const isLastSet = currentSet >= exerciseSets;
     const isLastExercise = currentExerciseIndex >= training.exercises.length - 1;
 
     if (isLastSet && isLastExercise) {
-      // Training complete
+      // Training complete - no sound
       setPhase('finished');
-      triggerStartBeep();
     } else if (isLastSet) {
       // Next exercise
       const nextEx = training.exercises[currentExerciseIndex + 1];
       setCurrentExerciseIndex((prev) => prev + 1);
       setCurrentSet(1);
 
-      // Start rest if configured, otherwise go straight to next exercise
-      if (currentExercise.restSeconds) {
+      // Se próximo é card de descanso, inicia em fase de descanso
+      if (nextEx?.type === 'rest') {
+        setTimeLeft(nextEx.durationSeconds || 0);
+        setPhase('resting');
+        triggerStartBeep();
+      } else if (currentExercise.type !== 'rest' && currentExercise.restSeconds) {
+        // Start rest if configured (só se o atual não for card de descanso)
         setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
         triggerStartBeep();
@@ -227,6 +249,29 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     if (!training) return;
 
     const exercise = training.exercises[currentExerciseIndex];
+
+    // Se o exercício atual é um card de descanso, avança para o próximo
+    if (exercise?.type === 'rest') {
+      const isLastExercise = currentExerciseIndex >= training.exercises.length - 1;
+      if (isLastExercise) {
+        setPhase('finished');
+      } else {
+        const nextEx = training.exercises[currentExerciseIndex + 1];
+        setCurrentExerciseIndex((prev) => prev + 1);
+        setCurrentSet(1);
+
+        if (nextEx?.type === 'rest') {
+          setTimeLeft(nextEx.durationSeconds || 0);
+          setPhase('resting');
+        } else if (nextEx?.setDurationSeconds) {
+          setTimeLeft(nextEx.setDurationSeconds);
+          setPhase('working');
+        }
+        triggerStartBeep();
+      }
+      return;
+    }
+
     if (exercise?.setDurationSeconds) {
       setTimeLeft(exercise.setDurationSeconds);
     }
@@ -242,7 +287,11 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   // Pause audio when timer is paused
   useEffect(() => {
     if (isPaused) {
-      player.pause();
+      try {
+        player.pause();
+      } catch (e) {
+        // Player may have been destroyed
+      }
     }
   }, [isPaused, player]);
 
@@ -317,8 +366,8 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     );
   }
 
-  // No timer configured - show message
-  if (!currentExercise.setDurationSeconds && phase === 'working') {
+  // No timer configured - show message (only for regular exercises, not rest cards)
+  if (!currentExercise.setDurationSeconds && phase === 'working' && currentExercise.type !== 'rest') {
     return (
       <LinearGradient
         colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
@@ -389,6 +438,13 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
 
   const progress = totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0;
   const isWorking = phase === 'working';
+  const isRestCard = currentExercise.type === 'rest';
+
+  // Check if we have extra info to display (sets, reps, weight)
+  const hasSetInfo = currentExercise.sets !== undefined && !isRestCard;
+  const hasDetailsInfo = (currentExercise.reps !== undefined || currentExercise.weight !== undefined) && !isRestCard;
+  const isMinimalMode = !hasSetInfo && !hasDetailsInfo;
+  const timerSize = isMinimalMode ? 320 : 260;
 
   return (
     <LinearGradient
@@ -426,68 +482,92 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           </View>
 
           {/* Main Content */}
-          <View style={styles.content}>
+          <View style={[styles.content, isMinimalMode && styles.contentMinimal]}>
           {/* Phase Label */}
-          <View style={[styles.phaseLabel, isWorking ? styles.workingLabel : styles.restingLabel]}>
-            <Text style={styles.phaseLabelText}>
-              {isWorking ? 'EXECUTANDO' : 'DESCANSANDO'}
+          <View style={[
+            styles.phaseLabel,
+            isRestCard
+              ? styles.restCardLabel
+              : (isWorking ? styles.workingLabel : styles.restingLabel)
+          ]}>
+            <Text style={[styles.phaseLabelText, isRestCard && styles.restCardLabelText]}>
+              {isRestCard ? 'DESCANSO' : (isWorking ? 'EXECUTANDO' : 'DESCANSANDO')}
             </Text>
           </View>
 
           {/* Exercise Info */}
           <Text style={styles.exerciseNumber}>
-            Exercício {currentExerciseIndex + 1}/{totalExercises}
+            {isRestCard ? 'Intervalo' : `Exercício ${currentExerciseNumber}/${totalExercises}`}
           </Text>
-          <Text style={styles.exerciseName}>{currentExercise.name}</Text>
+          <Text style={[
+            styles.exerciseName,
+            isMinimalMode && styles.exerciseNameMinimal,
+            isRestCard && styles.restCardName
+          ]}>
+            {isRestCard ? 'Descanso' : currentExercise.name}
+          </Text>
 
-          {/* Set Info */}
-          <View style={styles.setInfo}>
-            <Text style={styles.setLabel}>SÉRIE</Text>
-            <Text style={styles.setNumber}>
-              {currentSet}/{currentExercise.sets}
-            </Text>
-          </View>
+          {/* Set Info - only show if sets are defined */}
+          {hasSetInfo && (
+            <View style={styles.setInfo}>
+              <Text style={styles.setLabel}>SÉRIE</Text>
+              <Text style={styles.setNumber}>
+                {currentSet}/{currentExercise.sets}
+              </Text>
+            </View>
+          )}
 
           {/* Circular Timer */}
-          <View style={styles.timerContainer}>
+          <View style={[styles.timerContainer, isMinimalMode && styles.timerContainerMinimal]}>
             <CircularTimer
               timeLeft={timeLeft}
               totalTime={
-                isWorking
-                  ? currentExercise.setDurationSeconds || 0
-                  : currentExercise.restSeconds || 0
+                currentExercise.type === 'rest'
+                  ? currentExercise.durationSeconds || 0
+                  : isWorking
+                    ? currentExercise.setDurationSeconds || 0
+                    : currentExercise.restSeconds || 0
               }
-              size={260}
-              isResting={!isWorking}
+              size={timerSize}
+              isResting={!isWorking || currentExercise.type === 'rest'}
               isPaused={isPaused}
             />
             {isPaused && (
-              <View style={styles.pausedOverlay}>
+              <View style={[styles.pausedOverlay, { borderRadius: timerSize / 2 }]}>
                 <Text style={styles.pausedText}>PAUSADO</Text>
               </View>
             )}
           </View>
 
-          {/* Exercise Details */}
-          <View style={styles.exerciseDetails}>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailValue}>{currentExercise.reps}</Text>
-              <Text style={styles.detailLabel}>repetições</Text>
+          {/* Exercise Details - only show if reps or weight are defined */}
+          {hasDetailsInfo && (
+            <View style={styles.exerciseDetails}>
+              {currentExercise.reps !== undefined && (
+                <View style={styles.detailItem}>
+                  <Text style={styles.detailValue}>{currentExercise.reps}</Text>
+                  <Text style={styles.detailLabel}>repetições</Text>
+                </View>
+              )}
+              {currentExercise.weight !== undefined && (
+                <View style={styles.detailItem}>
+                  <Text style={styles.detailValue}>{currentExercise.weight}kg</Text>
+                  <Text style={styles.detailLabel}>peso</Text>
+                </View>
+              )}
             </View>
-            {currentExercise.weight && (
-              <View style={styles.detailItem}>
-                <Text style={styles.detailValue}>{currentExercise.weight}kg</Text>
-                <Text style={styles.detailLabel}>peso</Text>
-              </View>
-            )}
-          </View>
+          )}
         </View>
 
         {/* Next Exercise Preview */}
         {nextExercise && (
           <View style={styles.nextExerciseContainer}>
             <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
-            <Text style={styles.nextExerciseName}>{nextExercise.name}</Text>
+            <Text style={[
+              styles.nextExerciseName,
+              nextExercise.type === 'rest' && styles.nextRestCardName
+            ]}>
+              {nextExercise.type === 'rest' ? 'Descanso' : nextExercise.name}
+            </Text>
           </View>
         )}
 
@@ -597,6 +677,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: 'center',
   },
+  contentMinimal: {
+    justifyContent: 'flex-start',
+    paddingTop: 20,
+  },
   phaseLabel: {
     paddingHorizontal: 16,
     paddingVertical: 6,
@@ -608,6 +692,15 @@ const styles = StyleSheet.create({
   },
   restingLabel: {
     backgroundColor: 'rgba(52, 199, 89, 0.2)',
+  },
+  restCardLabel: {
+    backgroundColor: colors.rest,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+  },
+  restCardLabelText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   phaseLabelText: {
     color: colors.textPrimary,
@@ -626,6 +719,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     marginBottom: 8,
+  },
+  exerciseNameMinimal: {
+    fontSize: 28,
+    marginBottom: 40,
+  },
+  restCardName: {
+    color: colors.rest,
   },
   setInfo: {
     alignItems: 'center',
@@ -648,6 +748,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 24,
   },
+  timerContainerMinimal: {
+    marginBottom: 0,
+  },
   pausedOverlay: {
     position: 'absolute',
     top: 0,
@@ -655,7 +758,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 150,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -705,6 +807,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 16,
     fontWeight: '500',
+  },
+  nextRestCardName: {
+    color: colors.rest,
   },
   controlsContainer: {
     flexDirection: 'row',

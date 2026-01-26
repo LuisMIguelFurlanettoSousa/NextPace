@@ -1,5 +1,14 @@
 # Q58App - Coding Guidelines
 
+## User Experience Priority
+
+**SEMPRE priorizar a experiência do usuário.** Em todas as implementações:
+
+1. **Animações fluidas** - Use spring animations com valores suaves para feedback natural
+2. **Feedback tátil** - Vibração e feedback visual imediato para ações do usuário
+3. **Responsividade** - Interface deve responder instantaneamente ao toque
+4. **Consistência** - Comportamentos similares em toda a app
+
 ## Componentization Rule
 
 **ALWAYS componentize reusable UI elements.** When implementing any feature:

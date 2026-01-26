@@ -9,6 +9,7 @@ interface CircularTimerProps {
   timeLeft: number;
   totalTime: number;
   size?: number;
+  fontSize?: number;
   isResting?: boolean;
   isPaused?: boolean;
 }
@@ -17,9 +18,12 @@ export const CircularTimer: React.FC<CircularTimerProps> = ({
   timeLeft,
   totalTime,
   size = 240,
+  fontSize,
   isResting = false,
   isPaused = false,
 }) => {
+  // Default font size scales with timer size
+  const actualFontSize = fontSize || Math.round(size * 0.28);
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const center = size / 2;
@@ -142,7 +146,9 @@ export const CircularTimer: React.FC<CircularTimerProps> = ({
 
       {/* Time display */}
       <View style={styles.timeContainer}>
-        <Text style={styles.timeText}>{formatTime(timeLeft)}</Text>
+        <Text style={[styles.timeText, { fontSize: actualFontSize }]}>
+          {formatTime(timeLeft)}
+        </Text>
       </View>
     </View>
   );
@@ -160,7 +166,6 @@ const styles = StyleSheet.create({
   },
   timeText: {
     color: colors.textPrimary,
-    fontSize: 56,
     fontWeight: '200',
     fontVariant: ['tabular-nums'],
   },

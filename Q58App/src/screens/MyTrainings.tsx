@@ -110,8 +110,11 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
                   >
                     <Text style={styles.trainingName}>{training.name}</Text>
                     <Text style={styles.exerciseCount}>
-                      {training.exercises?.length || 0} exercício
-                      {(training.exercises?.length || 0) !== 1 ? 's' : ''}
+                      {training.exercises?.filter(e => e.type !== 'rest').length || 0} exercício
+                      {(training.exercises?.filter(e => e.type !== 'rest').length || 0) !== 1 ? 's' : ''}
+                      {(training.exercises?.filter(e => e.type === 'rest').length || 0) > 0 &&
+                        ` + ${training.exercises?.filter(e => e.type === 'rest').length} descanso${(training.exercises?.filter(e => e.type === 'rest').length || 0) !== 1 ? 's' : ''}`
+                      }
                     </Text>
                   </TouchableOpacity>
 

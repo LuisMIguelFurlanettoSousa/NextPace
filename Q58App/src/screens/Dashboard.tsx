@@ -30,7 +30,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress, onProfile
               <Text style={styles.greeting}>Olá!</Text>
               <Text style={styles.headerTitle}>Q58</Text>
             </View>
-            <TouchableOpacity onPress={() => { console.log('Profile pressed'); onProfilePress(); }} style={styles.profileButton}>
+            <TouchableOpacity onPress={onProfilePress} style={styles.profileButton}>
               <Ionicons name="person-circle-outline" size={36} color={colors.textPrimary} />
             </TouchableOpacity>
           </View>

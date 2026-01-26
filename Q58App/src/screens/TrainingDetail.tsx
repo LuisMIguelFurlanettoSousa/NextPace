@@ -8,13 +8,15 @@ import {
   TextInput,
   Modal,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
-import { TimerPickerModal, TimerButton, TimerPresets } from '../components/TimerPickerModal';
+import { TimerPickerModal, TimerButton, TimerPresets, REST_PRESETS } from '../components/TimerPickerModal';
 import { DraggableList } from '../components/DraggableList';
 
 interface TrainingDetailProps {
@@ -27,8 +29,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const [showModal, setShowModal] = useState(false);
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [exerciseName, setExerciseName] = useState('');
-  const [sets, setSets] = useState('3');
-  const [reps, setReps] = useState('12');
+  const [sets, setSets] = useState('');
+  const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
   const [restSeconds, setRestSeconds] = useState<number | undefined>(undefined);
   const [setDuration, setSetDuration] = useState<number | undefined>(undefined);
@@ -39,7 +41,15 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  // Menu de seleção de tipo e modal de descanso
+  const [showTypeMenu, setShowTypeMenu] = useState(false);
+  const [showRestModal, setShowRestModal] = useState(false);
+  const [restCardDuration, setRestCardDuration] = useState<number | undefined>(undefined);
+  const [showRestCardPicker, setShowRestCardPicker] = useState(false);
+  const [editingRestCardId, setEditingRestCardId] = useState<string | null>(null);
+
   const isEditing = editingExerciseId !== null;
+  const isEditingRestCard = editingRestCardId !== null;
 
   useEffect(() => {
     loadTraining();
@@ -53,8 +63,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const handleOpenEditModal = (exercise: Exercise) => {
     setEditingExerciseId(exercise.id);
     setExerciseName(exercise.name);
-    setSets(exercise.sets.toString());
-    setReps(exercise.reps.toString());
+    setSets(exercise.sets?.toString() || '');
+    setReps(exercise.reps?.toString() || '');
     setWeight(exercise.weight?.toString() || '');
     setRestSeconds(exercise.restSeconds);
     setSetDuration(exercise.setDurationSeconds);
@@ -69,8 +79,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
       if (isEditing && editingExerciseId) {
         await trainingStorage.updateExercise(trainingId, editingExerciseId, {
           name: exerciseName.trim(),
-          sets: parseInt(sets) || 3,
-          reps: parseInt(reps) || 12,
+          sets: sets ? parseInt(sets) : undefined,
+          reps: reps ? parseInt(reps) : undefined,
           weight: weight ? parseFloat(weight) : undefined,
           restSeconds: restSeconds,
           setDurationSeconds: setDuration,
@@ -78,8 +88,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
       } else {
         await trainingStorage.addExercise(trainingId, {
           name: exerciseName.trim(),
-          sets: parseInt(sets) || 3,
-          reps: parseInt(reps) || 12,
+          sets: sets ? parseInt(sets) : undefined,
+          reps: reps ? parseInt(reps) : undefined,
           weight: weight ? parseFloat(weight) : undefined,
           restSeconds: restSeconds,
           setDurationSeconds: setDuration,
@@ -122,14 +132,104 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const resetForm = () => {
     setEditingExerciseId(null);
     setExerciseName('');
-    setSets('3');
-    setReps('12');
+    setSets('');
+    setReps('');
     setWeight('');
     setRestSeconds(undefined);
     setSetDuration(undefined);
   };
 
+  const resetRestForm = () => {
+    setEditingRestCardId(null);
+    setRestCardDuration(undefined);
+  };
+
+  const handleOpenEditRestCard = (exercise: Exercise) => {
+    setEditingRestCardId(exercise.id);
+    setRestCardDuration(exercise.durationSeconds);
+    setShowRestModal(true);
+  };
+
+  const handleSaveRestCard = async () => {
+    if (!restCardDuration) return;
+
+    setSaving(true);
+    try {
+      if (isEditingRestCard && editingRestCardId) {
+        await trainingStorage.updateExercise(trainingId, editingRestCardId, {
+          name: 'Descanso',
+          type: 'rest',
+          durationSeconds: restCardDuration,
+        });
+      } else {
+        await trainingStorage.addExercise(trainingId, {
+          name: 'Descanso',
+          type: 'rest',
+          durationSeconds: restCardDuration,
+        });
+      }
+      await loadTraining();
+      setShowRestModal(false);
+      resetRestForm();
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível salvar o descanso');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddButtonPress = () => {
+    setShowTypeMenu(true);
+  };
+
+  const handleSelectExerciseType = () => {
+    setShowTypeMenu(false);
+    setShowModal(true);
+  };
+
+  const handleSelectRestType = () => {
+    setShowTypeMenu(false);
+    setShowRestModal(true);
+  };
+
   const renderExerciseItem = (exercise: Exercise, index: number, isDragging: boolean) => {
+    // Calcula o número do exercício (não conta rest cards)
+    const exerciseNumber = training?.exercises.slice(0, index + 1).filter(e => e.type !== 'rest').length || 0;
+
+    // Card de descanso
+    if (exercise.type === 'rest') {
+      return (
+        <View style={[styles.restCard, isDragging && styles.restCardDragging]}>
+          <View style={styles.exerciseHeader}>
+            <View style={styles.dragHandle}>
+              <Ionicons name="menu" size={20} color={isDragging ? colors.rest : colors.textMuted} />
+            </View>
+            <View style={styles.restIconContainer}>
+              <Ionicons name="cafe-outline" size={18} color={colors.textPrimary} />
+            </View>
+            <Text style={styles.restCardTitle}>Descanso</Text>
+            <TouchableOpacity
+              onPress={() => handleDeleteExercise(exercise.id)}
+              style={styles.deleteButton}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.restCardContent}>
+            <Ionicons name="time-outline" size={24} color={colors.rest} />
+            <Text style={styles.restCardTime}>
+              {exercise.durationSeconds ? formatTime(exercise.durationSeconds) : '0:00'}
+            </Text>
+          </View>
+          <View style={styles.editHint}>
+            <Ionicons name="pencil" size={12} color={colors.textMuted} />
+            <Text style={styles.editHintText}>Toque para editar • Segure e arraste para ordenar</Text>
+          </View>
+        </View>
+      );
+    }
+
+    // Card de exercício normal
     return (
       <View style={[styles.exerciseCard, isDragging && styles.exerciseCardDragging]}>
         <View style={styles.exerciseHeader}>
@@ -137,7 +237,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
             <Ionicons name="menu" size={20} color={isDragging ? colors.primary : colors.textMuted} />
           </View>
           <View style={styles.exerciseNumber}>
-            <Text style={styles.exerciseNumberText}>{index + 1}</Text>
+            <Text style={styles.exerciseNumberText}>{exerciseNumber}</Text>
           </View>
           <Text style={styles.exerciseName}>{exercise.name}</Text>
           <TouchableOpacity
@@ -148,44 +248,35 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           </TouchableOpacity>
         </View>
 
-        <View style={styles.exerciseStats}>
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>{exercise.sets}</Text>
-            <Text style={styles.statLabel}>séries</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>{exercise.reps}</Text>
-            <Text style={styles.statLabel}>reps</Text>
-          </View>
-          {exercise.restSeconds && (
-            <>
-              <View style={styles.statDivider} />
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{formatTime(exercise.restSeconds)}</Text>
-                <Text style={styles.statLabel}>descanso</Text>
-              </View>
-            </>
-          )}
-          {exercise.weight && (
-            <>
-              <View style={styles.statDivider} />
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{exercise.weight}kg</Text>
-                <Text style={styles.statLabel}>peso</Text>
-              </View>
-            </>
-          )}
-          {exercise.setDurationSeconds && (
-            <>
-              <View style={styles.statDivider} />
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{formatTime(exercise.setDurationSeconds)}</Text>
-                <Text style={styles.statLabel}>tempo</Text>
-              </View>
-            </>
-          )}
-        </View>
+        {(() => {
+          const stats: Array<{ value: string; label: string }> = [];
+          if (exercise.sets !== undefined) stats.push({ value: String(exercise.sets), label: 'séries' });
+          if (exercise.reps !== undefined) stats.push({ value: String(exercise.reps), label: 'reps' });
+          if (exercise.restSeconds) stats.push({ value: formatTime(exercise.restSeconds), label: 'descanso' });
+          if (exercise.weight) stats.push({ value: `${exercise.weight}kg`, label: 'peso' });
+          if (exercise.setDurationSeconds) stats.push({ value: formatTime(exercise.setDurationSeconds), label: 'tempo' });
+
+          if (stats.length === 0) return null;
+
+          return (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.exerciseStatsScroll}
+              contentContainerStyle={[styles.exerciseStats, styles.exerciseStatsCentered]}
+            >
+              {stats.map((stat, idx) => (
+                <React.Fragment key={stat.label}>
+                  {idx > 0 && <View style={styles.statDivider} />}
+                  <View style={styles.stat}>
+                    <Text style={styles.statValue}>{stat.value}</Text>
+                    <Text style={styles.statLabel}>{stat.label}</Text>
+                  </View>
+                </React.Fragment>
+              ))}
+            </ScrollView>
+          );
+        })()}
         <View style={styles.editHint}>
           <Ionicons name="pencil" size={12} color={colors.textMuted} />
           <Text style={styles.editHintText}>Toque para editar • Segure e arraste para ordenar</Text>
@@ -224,7 +315,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
 
         <View style={styles.exerciseCountContainer}>
           <Text style={styles.exerciseCount}>
-            {training.exercises.length} exercício{training.exercises.length !== 1 ? 's' : ''}
+            {training.exercises.filter(e => e.type !== 'rest').length} exercício{training.exercises.filter(e => e.type !== 'rest').length !== 1 ? 's' : ''}
+            {training.exercises.filter(e => e.type === 'rest').length > 0 && ` • ${training.exercises.filter(e => e.type === 'rest').length} descanso${training.exercises.filter(e => e.type === 'rest').length !== 1 ? 's' : ''}`}
           </Text>
         </View>
 
@@ -245,7 +337,13 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
               renderItem={renderExerciseItem}
               keyExtractor={(item) => item.id}
               onReorder={handleReorderExercises}
-              onItemTap={(exercise) => handleOpenEditModal(exercise)}
+              onItemTap={(exercise) => {
+                if (exercise.type === 'rest') {
+                  handleOpenEditRestCard(exercise);
+                } else {
+                  handleOpenEditModal(exercise);
+                }
+              }}
               onDragStart={() => setIsDragging(true)}
               onDragEnd={() => setIsDragging(false)}
               contentContainerStyle={styles.listContent}
@@ -253,7 +351,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           </ScrollView>
         )}
 
-        <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)}>
+        <TouchableOpacity style={styles.fab} onPress={handleAddButtonPress}>
           <LinearGradient
             colors={[colors.primary, colors.primaryDark]}
             style={styles.fabGradient}
@@ -264,6 +362,44 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           </LinearGradient>
         </TouchableOpacity>
 
+        {/* Menu de seleção de tipo */}
+        <Modal
+          visible={showTypeMenu}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowTypeMenu(false)}
+        >
+          <TouchableOpacity
+            style={styles.typeMenuOverlay}
+            activeOpacity={1}
+            onPress={() => setShowTypeMenu(false)}
+          >
+            <View style={styles.typeMenuContent}>
+              <Text style={styles.typeMenuTitle}>Adicionar</Text>
+
+              <TouchableOpacity style={styles.typeMenuItem} onPress={handleSelectExerciseType}>
+                <View style={[styles.typeMenuIcon, { backgroundColor: colors.primary }]}>
+                  <Ionicons name="fitness-outline" size={24} color={colors.textPrimary} />
+                </View>
+                <View style={styles.typeMenuTextContainer}>
+                  <Text style={styles.typeMenuItemTitle}>Exercício</Text>
+                  <Text style={styles.typeMenuItemSubtitle}>Adicione séries, reps, peso...</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.typeMenuItem} onPress={handleSelectRestType}>
+                <View style={[styles.typeMenuIcon, { backgroundColor: colors.rest }]}>
+                  <Ionicons name="cafe-outline" size={24} color={colors.textPrimary} />
+                </View>
+                <View style={styles.typeMenuTextContainer}>
+                  <Text style={styles.typeMenuItemTitle}>Descanso</Text>
+                  <Text style={styles.typeMenuItemSubtitle}>Pausa entre exercícios</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
         {/* Modal para adicionar exercício */}
         <Modal
           visible={showModal}
@@ -271,7 +407,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           transparent
           presentationStyle="overFullScreen"
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{isEditing ? 'Editar Exercício' : 'Novo Exercício'}</Text>
@@ -283,6 +422,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
               >
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Nome do exercício</Text>
@@ -297,10 +437,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
 
                 <View style={styles.row}>
                   <View style={[styles.inputGroup, styles.flex1]}>
-                    <Text style={styles.label}>Séries</Text>
+                    <Text style={styles.label}>Séries - opcional</Text>
                     <TextInput
                       style={styles.input}
-                      placeholder="3"
+                      placeholder="Ex: 3"
                       placeholderTextColor={colors.textMuted}
                       value={sets}
                       onChangeText={setSets}
@@ -309,10 +449,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                   </View>
                   <View style={styles.gap} />
                   <View style={[styles.inputGroup, styles.flex1]}>
-                    <Text style={styles.label}>Repetições</Text>
+                    <Text style={styles.label}>Repetições - opcional</Text>
                     <TextInput
                       style={styles.input}
-                      placeholder="12"
+                      placeholder="Ex: 12"
                       placeholderTextColor={colors.textMuted}
                       value={reps}
                       onChangeText={setReps}
@@ -348,7 +488,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                 {/* Descanso entre séries */}
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Descanso entre séries - opcional</Text>
-                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} />
+                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} presets={REST_PRESETS} />
                   <TimerButton
                     value={restSeconds}
                     onPress={() => setShowRestPicker(true)}
@@ -356,7 +496,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                     icon="timer-outline"
                   />
                 </View>
+              </ScrollView>
 
+              {/* Botão fixo na parte inferior */}
+              <View style={styles.modalFooter}>
                 <TouchableOpacity
                   style={[styles.saveButton, !exerciseName.trim() && styles.saveButtonDisabled]}
                   onPress={handleSaveExercise}
@@ -366,7 +509,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                     {saving ? 'Salvando...' : isEditing ? 'Salvar Alterações' : 'Adicionar Exercício'}
                   </Text>
                 </TouchableOpacity>
-              </ScrollView>
+              </View>
 
               {/* Timer Picker Modals - Inside exercise modal for proper stacking */}
               <TimerPickerModal
@@ -385,7 +528,74 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                 onChange={setSetDuration}
               />
             </View>
-          </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* Modal para adicionar descanso */}
+        <Modal
+          visible={showRestModal}
+          animationType="slide"
+          transparent
+          presentationStyle="overFullScreen"
+        >
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.restModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {isEditingRestCard ? 'Editar Descanso' : 'Novo Descanso'}
+                </Text>
+                <TouchableOpacity onPress={() => { setShowRestModal(false); resetRestForm(); }}>
+                  <Ionicons name="close" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.restModalBody}>
+                <View style={styles.restModalIconContainer}>
+                  <Ionicons name="cafe-outline" size={48} color={colors.rest} />
+                </View>
+                <Text style={styles.restModalDescription}>
+                  Adicione um intervalo de descanso entre os exercícios
+                </Text>
+
+                <View style={[styles.inputGroup, { width: '100%' }]}>
+                  <Text style={styles.label}>Tempo de descanso</Text>
+                  <TimerPresets value={restCardDuration} onSelect={setRestCardDuration} presets={REST_PRESETS} accentColor={colors.rest} />
+                  <TimerButton
+                    value={restCardDuration}
+                    onPress={() => setShowRestCardPicker(true)}
+                    onClear={() => setRestCardDuration(undefined)}
+                    icon="time-outline"
+                    placeholder="Toque para definir o tempo"
+                    accentColor={colors.rest}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.restSaveButton, !restCardDuration && styles.saveButtonDisabled]}
+                  onPress={handleSaveRestCard}
+                  disabled={!restCardDuration || saving}
+                >
+                  <Text style={styles.saveButtonText}>
+                    {saving ? 'Salvando...' : isEditingRestCard ? 'Salvar Alterações' : 'Adicionar Descanso'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TimerPickerModal
+                visible={showRestCardPicker}
+                title="Tempo de descanso"
+                value={restCardDuration}
+                onClose={() => setShowRestCardPicker(false)}
+                onChange={setRestCardDuration}
+                accentColor={colors.rest}
+              />
+            </View>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     </LinearGradient>
@@ -524,16 +734,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  exerciseStatsScroll: {
+    backgroundColor: colors.background,
+    borderRadius: 12,
+  },
   exerciseStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background,
-    borderRadius: 12,
     padding: 12,
+    gap: 4,
+  },
+  exerciseStatsCentered: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   stat: {
-    flex: 1,
     alignItems: 'center',
+    paddingHorizontal: 12,
+    minWidth: 50,
   },
   statValue: {
     color: colors.textPrimary,
@@ -564,6 +782,139 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
   },
+  // Rest card styles
+  restCard: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: colors.rest,
+    marginBottom: 12,
+  },
+  restCardDragging: {
+    backgroundColor: colors.cardBackground,
+    borderColor: colors.rest,
+    borderWidth: 2,
+    shadowColor: colors.rest,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  restIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.rest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  restCardTitle: {
+    color: colors.rest,
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+  },
+  restCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+  },
+  restCardTime: {
+    color: colors.rest,
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  // Type menu styles
+  typeMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  typeMenuContent: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  typeMenuTitle: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  typeMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  typeMenuIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  typeMenuTextContainer: {
+    flex: 1,
+  },
+  typeMenuItemTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  typeMenuItemSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  // Rest modal styles
+  restModalContent: {
+    backgroundColor: colors.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+  },
+  restModalBody: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    width: '100%',
+  },
+  restModalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(52, 199, 89, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  restModalDescription: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  restSaveButton: {
+    backgroundColor: colors.rest,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+  },
   fab: {
     position: 'absolute',
     bottom: 30,
@@ -592,8 +943,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cardBackground,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    paddingTop: 24,
+    paddingHorizontal: 24,
     maxHeight: '90%',
   },
   modalHeader: {
@@ -606,6 +957,13 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 20,
     fontWeight: '700',
+  },
+  modalScrollContent: {
+    paddingBottom: 16,
+  },
+  modalFooter: {
+    paddingVertical: 16,
+    paddingBottom: Platform.OS === 'android' ? 32 : 24,
   },
   inputGroup: {
     marginBottom: 16,
@@ -640,7 +998,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
-    marginTop: 8,
   },
   saveButtonDisabled: {
     backgroundColor: colors.inactive,

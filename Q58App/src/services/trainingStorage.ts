@@ -3,11 +3,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export interface Exercise {
   id: string;
   name: string;
-  sets: number;
-  reps: number;
+  type?: 'exercise' | 'rest'; // tipo do card (exercício ou descanso)
+  sets?: number; // número de séries (opcional)
+  reps?: number; // número de repetições (opcional)
   weight?: number;
   restSeconds?: number; // intervalo entre séries em segundos (opcional)
   setDurationSeconds?: number; // tempo da série (opcional)
+  durationSeconds?: number; // duração do descanso (para cards de descanso)
 }
 
 export interface Training {
