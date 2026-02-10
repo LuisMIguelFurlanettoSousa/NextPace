@@ -37,11 +37,9 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   const [sets, setSets] = useState('');
   const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
-  const [restSeconds, setRestSeconds] = useState<number | undefined>(undefined);
   const [setDuration, setSetDuration] = useState<number | undefined>(undefined);
 
   // Timer picker state
-  const [showRestPicker, setShowRestPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
 
   // Menu de seleção de tipo e modal de descanso
@@ -67,7 +65,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
           sets: exercise.sets,
           reps: exercise.reps,
           weight: exercise.weight,
-          restSeconds: exercise.restSeconds,
           setDurationSeconds: exercise.setDurationSeconds,
           durationSeconds: exercise.durationSeconds,
         });
@@ -90,7 +87,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
       sets: sets ? parseInt(sets) : undefined,
       reps: reps ? parseInt(reps) : undefined,
       weight: weight ? parseFloat(weight) : undefined,
-      restSeconds: restSeconds,
       setDurationSeconds: setDuration,
     };
 
@@ -123,7 +119,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
     setSets('');
     setReps('');
     setWeight('');
-    setRestSeconds(undefined);
     setSetDuration(undefined);
   };
 
@@ -273,7 +268,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                         const stats: Array<{ value: string; label: string }> = [];
                         if (exercise.sets !== undefined) stats.push({ value: String(exercise.sets), label: 'séries' });
                         if (exercise.reps !== undefined) stats.push({ value: String(exercise.reps), label: 'reps' });
-                        if (exercise.restSeconds) stats.push({ value: formatTime(exercise.restSeconds), label: 'descanso' });
                         if (exercise.weight) stats.push({ value: `${exercise.weight}kg`, label: 'peso' });
                         if (exercise.setDurationSeconds) stats.push({ value: formatTime(exercise.setDurationSeconds), label: 'tempo' });
 
@@ -305,22 +299,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
             )}
           </View>
 
-          <View style={styles.suggestionsSection}>
-            <Text style={styles.suggestionsTitle}>Sugestões de nome</Text>
-            <View style={styles.suggestionsContainer}>
-              {['Treino A', 'Treino B', 'Treino C', 'Push', 'Pull', 'Legs'].map(
-                (suggestion) => (
-                  <TouchableOpacity
-                    key={suggestion}
-                    style={styles.suggestionChip}
-                    onPress={() => setTrainingName(suggestion)}
-                  >
-                    <Text style={styles.suggestionText}>{suggestion}</Text>
-                  </TouchableOpacity>
-                )
-              )}
-            </View>
-          </View>
         </ScrollView>
 
         {/* Modal para adicionar exercício */}
@@ -408,17 +386,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   />
                 </View>
 
-                {/* Descanso entre séries */}
-                <View style={styles.modalInputGroup}>
-                  <Text style={styles.modalLabel}>Descanso entre séries - opcional</Text>
-                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} presets={REST_PRESETS} />
-                  <TimerButton
-                    value={restSeconds}
-                    onPress={() => setShowRestPicker(true)}
-                    onClear={() => setRestSeconds(undefined)}
-                    icon="timer-outline"
-                  />
-                </View>
               </ScrollView>
 
               {/* Botão fixo na parte inferior */}
@@ -436,14 +403,6 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
               </View>
 
               {/* Timer Picker Modals */}
-              <TimerPickerModal
-                visible={showRestPicker}
-                title="Descanso entre séries"
-                value={restSeconds}
-                onClose={() => setShowRestPicker(false)}
-                onChange={setRestSeconds}
-              />
-
               <TimerPickerModal
                 visible={showDurationPicker}
                 title="Tempo da série"
@@ -787,34 +746,6 @@ const styles = StyleSheet.create({
     width: 1,
     height: 24,
     backgroundColor: colors.cardBorder,
-  },
-  suggestionsSection: {
-    marginTop: 8,
-  },
-  suggestionsTitle: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  suggestionsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  suggestionChip: {
-    backgroundColor: colors.cardBackground,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-  },
-  suggestionText: {
-    color: colors.textSecondary,
-    fontSize: 14,
   },
   // Modal styles
   modalOverlay: {

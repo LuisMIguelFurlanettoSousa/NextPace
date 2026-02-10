@@ -32,12 +32,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const [sets, setSets] = useState('');
   const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
-  const [restSeconds, setRestSeconds] = useState<number | undefined>(undefined);
   const [setDuration, setSetDuration] = useState<number | undefined>(undefined);
   const [saving, setSaving] = useState(false);
 
   // Native picker state
-  const [showRestPicker, setShowRestPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -66,7 +64,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     setSets(exercise.sets?.toString() || '');
     setReps(exercise.reps?.toString() || '');
     setWeight(exercise.weight?.toString() || '');
-    setRestSeconds(exercise.restSeconds);
     setSetDuration(exercise.setDurationSeconds);
     setShowModal(true);
   };
@@ -82,7 +79,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           sets: sets ? parseInt(sets) : undefined,
           reps: reps ? parseInt(reps) : undefined,
           weight: weight ? parseFloat(weight) : undefined,
-          restSeconds: restSeconds,
           setDurationSeconds: setDuration,
         });
       } else {
@@ -91,7 +87,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           sets: sets ? parseInt(sets) : undefined,
           reps: reps ? parseInt(reps) : undefined,
           weight: weight ? parseFloat(weight) : undefined,
-          restSeconds: restSeconds,
           setDurationSeconds: setDuration,
         });
       }
@@ -135,7 +130,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     setSets('');
     setReps('');
     setWeight('');
-    setRestSeconds(undefined);
     setSetDuration(undefined);
   };
 
@@ -252,7 +246,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           const stats: Array<{ value: string; label: string }> = [];
           if (exercise.sets !== undefined) stats.push({ value: String(exercise.sets), label: 'séries' });
           if (exercise.reps !== undefined) stats.push({ value: String(exercise.reps), label: 'reps' });
-          if (exercise.restSeconds) stats.push({ value: formatTime(exercise.restSeconds), label: 'descanso' });
           if (exercise.weight) stats.push({ value: `${exercise.weight}kg`, label: 'peso' });
           if (exercise.setDurationSeconds) stats.push({ value: formatTime(exercise.setDurationSeconds), label: 'tempo' });
 
@@ -485,17 +478,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                   />
                 </View>
 
-                {/* Descanso entre séries */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Descanso entre séries - opcional</Text>
-                  <TimerPresets value={restSeconds} onSelect={setRestSeconds} presets={REST_PRESETS} />
-                  <TimerButton
-                    value={restSeconds}
-                    onPress={() => setShowRestPicker(true)}
-                    onClear={() => setRestSeconds(undefined)}
-                    icon="timer-outline"
-                  />
-                </View>
               </ScrollView>
 
               {/* Botão fixo na parte inferior */}
@@ -512,14 +494,6 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
               </View>
 
               {/* Timer Picker Modals - Inside exercise modal for proper stacking */}
-              <TimerPickerModal
-                visible={showRestPicker}
-                title="Descanso entre séries"
-                value={restSeconds}
-                onClose={() => setShowRestPicker(false)}
-                onChange={setRestSeconds}
-              />
-
               <TimerPickerModal
                 visible={showDurationPicker}
                 title="Tempo da série"
