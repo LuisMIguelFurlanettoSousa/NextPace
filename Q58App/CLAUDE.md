@@ -1,4 +1,4 @@
-# Q58App - Coding Guidelines
+# NextPace - Coding Guidelines
 
 ## User Experience Priority
 

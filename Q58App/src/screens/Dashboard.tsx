@@ -28,7 +28,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress, onProfile
           <View style={styles.header}>
             <View>
               <Text style={styles.greeting}>Olá!</Text>
-              <Text style={styles.headerTitle}>Q58</Text>
+              <Text style={styles.headerTitle}>NextPace</Text>
             </View>
             <TouchableOpacity onPress={onProfilePress} style={styles.profileButton}>
               <Ionicons name="person-circle-outline" size={36} color={colors.textPrimary} />

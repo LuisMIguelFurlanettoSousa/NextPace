@@ -168,7 +168,7 @@ export const Profile: React.FC<ProfileProps> = ({ onGoBack }) => {
           </View>
 
           {/* Version */}
-          <Text style={styles.version}>Q58 App v1.0.0</Text>
+          <Text style={styles.version}>NextPace v1.0.0</Text>
         </ScrollView>
       </View>
     </LinearGradient>

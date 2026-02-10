@@ -20,7 +20,7 @@ export interface Training {
   createdAt: string;
 }
 
-const TRAININGS_KEY = '@q58_trainings';
+const TRAININGS_KEY = '@nextpace_trainings';
 
 export const trainingStorage = {
   async getAll(): Promise<Training[]> {
