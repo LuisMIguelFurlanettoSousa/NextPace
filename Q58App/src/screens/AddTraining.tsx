@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Animated,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,6 +34,26 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   const [exercises, setExercises] = useState<TempExercise[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Custom scrollbar state
+  const [visibleHeight, setVisibleHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
+  const [scrollY] = useState(new Animated.Value(0));
+
+  const showCustomScrollbar = contentHeight > visibleHeight;
+  const trackHeight = visibleHeight * 0.7;
+
+  const scrollIndicatorSize = showCustomScrollbar
+    ? Math.max((visibleHeight / contentHeight) * trackHeight, 30)
+    : 0;
+
+  const scrollIndicatorPosition = showCustomScrollbar
+    ? scrollY.interpolate({
+        inputRange: [0, Math.max(contentHeight - visibleHeight, 1)],
+        outputRange: [0, trackHeight - scrollIndicatorSize],
+        extrapolate: 'clamp',
+      })
+    : new Animated.Value(0);
+
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [exerciseName, setExerciseName] = useState('');
@@ -38,15 +61,26 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   const [reps, setReps] = useState('');
   const [weight, setWeight] = useState('');
   const [setDuration, setSetDuration] = useState<number | undefined>(undefined);
+  const [editingTempId, setEditingTempId] = useState<string | null>(null);
 
   // Timer picker state
   const [showDurationPicker, setShowDurationPicker] = useState(false);
+
+  // Configurações do treino
+  const [defaultRestSeconds, setDefaultRestSeconds] = useState<number | undefined>(undefined);
+  const [rounds, setRounds] = useState('');
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showDefaultRestPicker, setShowDefaultRestPicker] = useState(false);
 
   // Menu de seleção de tipo e modal de descanso
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [showRestModal, setShowRestModal] = useState(false);
   const [restCardDuration, setRestCardDuration] = useState<number | undefined>(undefined);
   const [showRestCardPicker, setShowRestCardPicker] = useState(false);
+  const [editingRestTempId, setEditingRestTempId] = useState<string | null>(null);
+
+  const isEditing = editingTempId !== null;
+  const isEditingRest = editingRestTempId !== null;
 
   const handleSave = async () => {
     if (!trainingName.trim()) return;
@@ -56,6 +90,8 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
       const newTraining = await trainingStorage.save({
         name: trainingName.trim(),
         description: description.trim(),
+        defaultRestSeconds,
+        rounds: rounds ? parseInt(rounds) : undefined,
       });
 
       for (const exercise of exercises) {
@@ -80,34 +116,66 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   const handleAddExercise = () => {
     if (!exerciseName.trim()) return;
 
-    const newExercise: TempExercise = {
-      tempId: Date.now().toString(),
-      name: exerciseName.trim(),
-      type: 'exercise',
-      sets: sets ? parseInt(sets) : undefined,
-      reps: reps ? parseInt(reps) : undefined,
-      weight: weight ? parseFloat(weight) : undefined,
-      setDurationSeconds: setDuration,
-    };
+    if (isEditing) {
+      setExercises(exercises.map((e) =>
+        e.tempId === editingTempId
+          ? { ...e, name: exerciseName.trim(), sets: sets ? parseInt(sets) : undefined, reps: reps ? parseInt(reps) : undefined, weight: weight ? parseFloat(weight) : undefined, setDurationSeconds: setDuration }
+          : e
+      ));
+    } else {
+      const newExercise: TempExercise = {
+        tempId: Date.now().toString(),
+        name: exerciseName.trim(),
+        type: 'exercise',
+        sets: sets ? parseInt(sets) : undefined,
+        reps: reps ? parseInt(reps) : undefined,
+        weight: weight ? parseFloat(weight) : undefined,
+        setDurationSeconds: setDuration,
+      };
+      setExercises([...exercises, newExercise]);
+    }
 
-    setExercises([...exercises, newExercise]);
     setShowModal(false);
     resetExerciseForm();
+  };
+
+  const handleEditExercise = (exercise: TempExercise) => {
+    setEditingTempId(exercise.tempId);
+    setExerciseName(exercise.name);
+    setSets(exercise.sets?.toString() || '');
+    setReps(exercise.reps?.toString() || '');
+    setWeight(exercise.weight?.toString() || '');
+    setSetDuration(exercise.setDurationSeconds);
+    setShowModal(true);
   };
 
   const handleAddRestCard = () => {
     if (!restCardDuration) return;
 
-    const newRest: TempExercise = {
-      tempId: Date.now().toString(),
-      name: 'Descanso',
-      type: 'rest',
-      durationSeconds: restCardDuration,
-    };
+    if (isEditingRest) {
+      setExercises(exercises.map((e) =>
+        e.tempId === editingRestTempId
+          ? { ...e, durationSeconds: restCardDuration }
+          : e
+      ));
+    } else {
+      const newRest: TempExercise = {
+        tempId: Date.now().toString(),
+        name: 'Descanso',
+        type: 'rest',
+        durationSeconds: restCardDuration,
+      };
+      setExercises([...exercises, newRest]);
+    }
 
-    setExercises([...exercises, newRest]);
     setShowRestModal(false);
     resetRestForm();
+  };
+
+  const handleEditRestCard = (exercise: TempExercise) => {
+    setEditingRestTempId(exercise.tempId);
+    setRestCardDuration(exercise.durationSeconds);
+    setShowRestModal(true);
   };
 
   const handleRemoveExercise = (tempId: string) => {
@@ -115,6 +183,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   };
 
   const resetExerciseForm = () => {
+    setEditingTempId(null);
     setExerciseName('');
     setSets('');
     setReps('');
@@ -123,6 +192,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   };
 
   const resetRestForm = () => {
+    setEditingRestTempId(null);
     setRestCardDuration(undefined);
   };
 
@@ -140,6 +210,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
     setShowRestModal(true);
   };
 
+  const hasSettings = defaultRestSeconds !== undefined || (rounds !== '' && parseInt(rounds) > 1);
   const isFormValid = trainingName.trim().length > 0 && !saving;
 
   return (
@@ -158,6 +229,12 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Novo Treino</Text>
           <TouchableOpacity
+            onPress={() => setShowSettingsModal(true)}
+            style={[styles.settingsButton, hasSettings && styles.settingsButtonActive]}
+          >
+            <Ionicons name="settings-outline" size={22} color={hasSettings ? colors.rest : colors.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={handleSave}
             style={[styles.saveButton, !isFormValid && styles.saveButtonDisabled]}
             disabled={!isFormValid}
@@ -168,11 +245,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.fixedInputs}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Nome do treino</Text>
             <View style={styles.inputContainer}>
@@ -200,106 +273,148 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
               />
             </View>
           </View>
+        </View>
 
-          <View style={styles.exercisesSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.label}>Exercícios ({exercises.length})</Text>
-              <TouchableOpacity
-                style={styles.addExerciseButton}
-                onPress={handleAddButtonPress}
-              >
-                <Ionicons name="add" size={20} color={colors.primary} />
-                <Text style={styles.addExerciseText}>Adicionar</Text>
-              </TouchableOpacity>
-            </View>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.label}>Exercícios ({exercises.length})</Text>
+          <TouchableOpacity
+            style={styles.addExerciseButton}
+            onPress={handleAddButtonPress}
+          >
+            <Ionicons name="add" size={20} color={colors.primary} />
+            <Text style={styles.addExerciseText}>Adicionar</Text>
+          </TouchableOpacity>
+        </View>
 
-            {exercises.length === 0 ? (
-              <TouchableOpacity
-                style={styles.emptyExercises}
-                onPress={handleAddButtonPress}
-              >
-                <Ionicons name="fitness-outline" size={32} color={colors.textMuted} />
-                <Text style={styles.emptyText}>Toque para adicionar exercícios</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.exerciseList}>
-                {exercises.map((exercise, index) => {
-                  // Calcula o número do exercício (não conta rest cards)
-                  const exerciseNumber = exercises.slice(0, index + 1).filter(e => e.type !== 'rest').length;
-                  return exercise.type === 'rest' ? (
-                    // Card de descanso
-                    <View key={exercise.tempId} style={styles.restCard}>
-                      <View style={styles.exerciseHeader}>
-                        <View style={styles.restIconContainer}>
-                          <Ionicons name="cafe-outline" size={18} color={colors.textPrimary} />
-                        </View>
-                        <Text style={styles.restCardTitle}>Descanso</Text>
-                        <TouchableOpacity
-                          onPress={() => handleRemoveExercise(exercise.tempId)}
-                          style={styles.deleteButton}
-                        >
-                          <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.restCardContent}>
-                        <Ionicons name="time-outline" size={24} color={colors.rest} />
-                        <Text style={styles.restCardTime}>
-                          {exercise.durationSeconds ? formatTime(exercise.durationSeconds) : '0:00'}
-                        </Text>
-                      </View>
-                    </View>
-                  ) : (
-                    // Card de exercício normal
-                    <View key={exercise.tempId} style={styles.exerciseCard}>
-                      <View style={styles.exerciseHeader}>
-                        <View style={styles.exerciseNumber}>
-                          <Text style={styles.exerciseNumberText}>{exerciseNumber}</Text>
-                        </View>
-                        <Text style={styles.exerciseName}>{exercise.name}</Text>
-                        <TouchableOpacity
-                          onPress={() => handleRemoveExercise(exercise.tempId)}
-                          style={styles.deleteButton}
-                        >
-                          <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-
-                      {(() => {
-                        const stats: Array<{ value: string; label: string }> = [];
-                        if (exercise.sets !== undefined) stats.push({ value: String(exercise.sets), label: 'séries' });
-                        if (exercise.reps !== undefined) stats.push({ value: String(exercise.reps), label: 'reps' });
-                        if (exercise.weight) stats.push({ value: `${exercise.weight}kg`, label: 'peso' });
-                        if (exercise.setDurationSeconds) stats.push({ value: formatTime(exercise.setDurationSeconds), label: 'tempo' });
-
-                        if (stats.length === 0) return null;
-
-                        return (
-                          <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.exerciseStatsScroll}
-                            contentContainerStyle={[styles.exerciseStats, styles.exerciseStatsCentered]}
-                          >
-                            {stats.map((stat, idx) => (
-                              <React.Fragment key={stat.label}>
-                                {idx > 0 && <View style={styles.statDivider} />}
-                                <View style={styles.stat}>
-                                  <Text style={styles.statValue}>{stat.value}</Text>
-                                  <Text style={styles.statLabel}>{stat.label}</Text>
-                                </View>
-                              </React.Fragment>
-                            ))}
-                          </ScrollView>
-                        );
-                      })()}
-                    </View>
-                  );
-                })}
-              </View>
-            )}
+        {exercises.length === 0 ? (
+          <View style={styles.emptyExercisesWrapper}>
+            <TouchableOpacity
+              style={styles.emptyExercises}
+              onPress={handleAddButtonPress}
+            >
+              <Ionicons name="fitness-outline" size={32} color={colors.textMuted} />
+              <Text style={styles.emptyText}>Toque para adicionar exercícios</Text>
+            </TouchableOpacity>
           </View>
+        ) : (
+          <View style={styles.scrollWrapper}>
+          <ScrollView
+            style={styles.exerciseScrollView}
+            contentContainerStyle={styles.exerciseScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onLayout={(e) => setVisibleHeight(e.nativeEvent.layout.height)}
+            onContentSizeChange={(_, h) => setContentHeight(h)}
+            onScroll={Animated.event(
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              { useNativeDriver: false }
+            )}
+            scrollEventThrottle={16}
+          >
+            {exercises.map((exercise, index) => {
+              // Calcula o número do exercício (não conta rest cards)
+              const exerciseNumber = exercises.slice(0, index + 1).filter(e => e.type !== 'rest').length;
+              return exercise.type === 'rest' ? (
+                // Card de descanso
+                <TouchableOpacity
+                  key={exercise.tempId}
+                  style={styles.restCard}
+                  activeOpacity={0.7}
+                  onPress={() => handleEditRestCard(exercise)}
+                >
+                  <View style={styles.exerciseHeader}>
+                    <View style={styles.restIconContainer}>
+                      <Ionicons name="cafe-outline" size={18} color={colors.textPrimary} />
+                    </View>
+                    <Text style={styles.restCardTitle}>Descanso</Text>
+                    <View style={styles.cardActions}>
+                      <Ionicons name="create-outline" size={18} color={colors.textMuted} />
+                      <TouchableOpacity
+                        onPress={() => handleRemoveExercise(exercise.tempId)}
+                        style={styles.deleteButton}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.restCardContent}>
+                    <Ionicons name="time-outline" size={24} color={colors.rest} />
+                    <Text style={styles.restCardTime}>
+                      {exercise.durationSeconds ? formatTime(exercise.durationSeconds) : '0:00'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                // Card de exercício normal
+                <TouchableOpacity
+                  key={exercise.tempId}
+                  style={styles.exerciseCard}
+                  activeOpacity={0.7}
+                  onPress={() => handleEditExercise(exercise)}
+                >
+                  <View style={styles.exerciseHeader}>
+                    <View style={styles.exerciseNumber}>
+                      <Text style={styles.exerciseNumberText}>{exerciseNumber}</Text>
+                    </View>
+                    <Text style={styles.exerciseName}>{exercise.name}</Text>
+                    <View style={styles.cardActions}>
+                      <Ionicons name="create-outline" size={18} color={colors.textMuted} />
+                      <TouchableOpacity
+                        onPress={() => handleRemoveExercise(exercise.tempId)}
+                        style={styles.deleteButton}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
 
-        </ScrollView>
+                  {(() => {
+                    const stats: Array<{ value: string; label: string }> = [];
+                    if (exercise.sets !== undefined) stats.push({ value: String(exercise.sets), label: 'séries' });
+                    if (exercise.reps !== undefined) stats.push({ value: String(exercise.reps), label: 'reps' });
+                    if (exercise.weight) stats.push({ value: `${exercise.weight}kg`, label: 'peso' });
+                    if (exercise.setDurationSeconds) stats.push({ value: formatTime(exercise.setDurationSeconds), label: 'tempo' });
+
+                    if (stats.length === 0) return null;
+
+                    return (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.exerciseStatsScroll}
+                        contentContainerStyle={[styles.exerciseStats, styles.exerciseStatsCentered]}
+                      >
+                        {stats.map((stat, idx) => (
+                          <React.Fragment key={stat.label}>
+                            {idx > 0 && <View style={styles.statDivider} />}
+                            <View style={styles.stat}>
+                              <Text style={styles.statValue}>{stat.value}</Text>
+                              <Text style={styles.statLabel}>{stat.label}</Text>
+                            </View>
+                          </React.Fragment>
+                        ))}
+                      </ScrollView>
+                    );
+                  })()}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          {showCustomScrollbar && (
+            <View style={styles.scrollbarTrack}>
+              <Animated.View
+                style={[
+                  styles.scrollbarThumb,
+                  {
+                    height: scrollIndicatorSize,
+                    transform: [{ translateY: scrollIndicatorPosition }],
+                  },
+                ]}
+              />
+            </View>
+          )}
+          </View>
+        )}
 
         {/* Modal para adicionar exercício */}
         <Modal
@@ -314,7 +429,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
           >
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Novo Exercício</Text>
+                <Text style={styles.modalTitle}>{isEditing ? 'Editar Exercício' : 'Novo Exercício'}</Text>
                 <TouchableOpacity onPress={() => { setShowModal(false); resetExerciseForm(); }}>
                   <Ionicons name="close" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -398,7 +513,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   onPress={handleAddExercise}
                   disabled={!exerciseName.trim()}
                 >
-                  <Text style={styles.modalSaveButtonText}>Adicionar Exercício</Text>
+                  <Text style={styles.modalSaveButtonText}>{isEditing ? 'Salvar Alterações' : 'Adicionar Exercício'}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -466,7 +581,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
           >
             <View style={styles.restModalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Novo Descanso</Text>
+                <Text style={styles.modalTitle}>{isEditingRest ? 'Editar Descanso' : 'Novo Descanso'}</Text>
                 <TouchableOpacity onPress={() => { setShowRestModal(false); resetRestForm(); }}>
                   <Ionicons name="close" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
@@ -500,7 +615,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                   onPress={handleAddRestCard}
                   disabled={!restCardDuration}
                 >
-                  <Text style={styles.modalSaveButtonText}>Adicionar Descanso</Text>
+                  <Text style={styles.modalSaveButtonText}>{isEditingRest ? 'Salvar Alterações' : 'Adicionar Descanso'}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -510,6 +625,82 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                 value={restCardDuration}
                 onClose={() => setShowRestCardPicker(false)}
                 onChange={setRestCardDuration}
+                accentColor={colors.rest}
+              />
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+        {/* Modal de configurações do treino */}
+        <Modal
+          visible={showSettingsModal}
+          animationType="slide"
+          transparent
+          presentationStyle="overFullScreen"
+        >
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.settingsModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Configurações</Text>
+                <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
+                  <Ionicons name="close" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <View style={styles.modalInputGroup}>
+                  <Text style={styles.modalLabel}>Descanso padrão entre exercícios</Text>
+                  <Text style={styles.settingsHint}>
+                    Aplicado automaticamente entre exercícios sem card de descanso
+                  </Text>
+                  <TimerPresets value={defaultRestSeconds} onSelect={setDefaultRestSeconds} presets={REST_PRESETS} accentColor={colors.rest} />
+                  <TimerButton
+                    value={defaultRestSeconds}
+                    onPress={() => setShowDefaultRestPicker(true)}
+                    onClear={() => setDefaultRestSeconds(undefined)}
+                    icon="time-outline"
+                    placeholder="Sem descanso padrão"
+                    accentColor={colors.rest}
+                  />
+                </View>
+
+                <View style={styles.modalInputGroup}>
+                  <Text style={styles.modalLabel}>Rounds (repetições do treino)</Text>
+                  <Text style={styles.settingsHint}>
+                    Quantas vezes o treino inteiro repete
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="1"
+                    placeholderTextColor={colors.textMuted}
+                    value={rounds}
+                    onChangeText={setRounds}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              </ScrollView>
+
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={styles.modalSaveButton}
+                  onPress={() => setShowSettingsModal(false)}
+                >
+                  <Text style={styles.modalSaveButtonText}>Confirmar</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TimerPickerModal
+                visible={showDefaultRestPicker}
+                title="Descanso padrão"
+                value={defaultRestSeconds}
+                onClose={() => setShowDefaultRestPicker(false)}
+                onChange={setDefaultRestSeconds}
                 accentColor={colors.rest}
               />
             </View>
@@ -548,6 +739,18 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
   },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.cardBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsButtonActive: {
+    borderWidth: 1.5,
+    borderColor: colors.rest,
+  },
   saveButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -565,11 +768,10 @@ const styles = StyleSheet.create({
   saveTextDisabled: {
     color: colors.textMuted,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
+  fixedInputs: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    flexShrink: 0,
   },
   inputGroup: {
     marginBottom: 20,
@@ -601,14 +803,39 @@ const styles = StyleSheet.create({
     height: 80,
     paddingTop: 12,
   },
-  exercisesSection: {
-    marginBottom: 24,
+  scrollWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  exerciseScrollView: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  exerciseScrollContent: {
+    paddingBottom: 30,
+    gap: 12,
+  },
+  scrollbarTrack: {
+    width: 4,
+    marginRight: 12,
+    marginVertical: '15%',
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  scrollbarThumb: {
+    width: 4,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
     marginBottom: 12,
+  },
+  emptyExercisesWrapper: {
+    paddingHorizontal: 20,
   },
   addExerciseButton: {
     flexDirection: 'row',
@@ -705,6 +932,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     flex: 1,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   deleteButton: {
     width: 32,
@@ -905,5 +1137,18 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
+  },
+  settingsModalContent: {
+    backgroundColor: colors.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    maxHeight: '80%',
+  },
+  settingsHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginBottom: 12,
   },
 });

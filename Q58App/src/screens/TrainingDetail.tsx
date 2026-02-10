@@ -46,6 +46,13 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const [showRestCardPicker, setShowRestCardPicker] = useState(false);
   const [editingRestCardId, setEditingRestCardId] = useState<string | null>(null);
 
+  // Configurações do treino
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [defaultRestSeconds, setDefaultRestSeconds] = useState<number | undefined>(undefined);
+  const [rounds, setRounds] = useState('');
+  const [showDefaultRestPicker, setShowDefaultRestPicker] = useState(false);
+
+  const hasSettings = defaultRestSeconds !== undefined || (rounds !== '' && parseInt(rounds) > 1);
   const isEditing = editingExerciseId !== null;
   const isEditingRestCard = editingRestCardId !== null;
 
@@ -56,6 +63,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const loadTraining = async () => {
     const data = await trainingStorage.getById(trainingId);
     setTraining(data);
+    if (data) {
+      setDefaultRestSeconds(data.defaultRestSeconds);
+      setRounds(data.rounds ? String(data.rounds) : '');
+    }
   };
 
   const handleOpenEditModal = (exercise: Exercise) => {
@@ -169,6 +180,19 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
       Alert.alert('Erro', 'Não foi possível salvar o descanso');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      await trainingStorage.update(trainingId, {
+        defaultRestSeconds,
+        rounds: rounds ? parseInt(rounds) : undefined,
+      });
+      await loadTraining();
+      setShowSettingsModal(false);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível salvar as configurações');
     }
   };
 
@@ -303,7 +327,12 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           <Text style={styles.headerTitle} numberOfLines={1}>
             {training.name}
           </Text>
-          <View style={styles.headerSpacer} />
+          <TouchableOpacity
+            onPress={() => setShowSettingsModal(true)}
+            style={[styles.settingsButton, hasSettings && styles.settingsButtonActive]}
+          >
+            <Ionicons name="settings-outline" size={22} color={hasSettings ? colors.rest : colors.textSecondary} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.exerciseCountContainer}>
@@ -571,6 +600,82 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
             </View>
           </KeyboardAvoidingView>
         </Modal>
+        {/* Modal de configurações do treino */}
+        <Modal
+          visible={showSettingsModal}
+          animationType="slide"
+          transparent
+          presentationStyle="overFullScreen"
+        >
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <View style={styles.settingsModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Configurações</Text>
+                <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
+                  <Ionicons name="close" size={24} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Descanso padrão entre exercícios</Text>
+                  <Text style={styles.settingsHint}>
+                    Aplicado automaticamente entre exercícios sem card de descanso
+                  </Text>
+                  <TimerPresets value={defaultRestSeconds} onSelect={setDefaultRestSeconds} presets={REST_PRESETS} accentColor={colors.rest} />
+                  <TimerButton
+                    value={defaultRestSeconds}
+                    onPress={() => setShowDefaultRestPicker(true)}
+                    onClear={() => setDefaultRestSeconds(undefined)}
+                    icon="time-outline"
+                    placeholder="Sem descanso padrão"
+                    accentColor={colors.rest}
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Rounds (repetições do treino)</Text>
+                  <Text style={styles.settingsHint}>
+                    Quantas vezes o treino inteiro repete
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="1"
+                    placeholderTextColor={colors.textMuted}
+                    value={rounds}
+                    onChangeText={setRounds}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              </ScrollView>
+
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={styles.saveButton}
+                  onPress={handleSaveSettings}
+                >
+                  <Text style={styles.saveButtonText}>Salvar Configurações</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TimerPickerModal
+                visible={showDefaultRestPicker}
+                title="Descanso padrão"
+                value={defaultRestSeconds}
+                onClose={() => setShowDefaultRestPicker(false)}
+                onChange={setDefaultRestSeconds}
+                accentColor={colors.rest}
+              />
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </View>
     </LinearGradient>
   );
@@ -620,8 +725,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginHorizontal: 8,
   },
-  headerSpacer: {
+  settingsButton: {
     width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.cardBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsButtonActive: {
+    borderWidth: 1.5,
+    borderColor: colors.rest,
   },
   exerciseCountContainer: {
     paddingHorizontal: 20,
@@ -888,6 +1002,19 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
+  },
+  settingsModalContent: {
+    backgroundColor: colors.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    maxHeight: '80%',
+  },
+  settingsHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginBottom: 12,
   },
   fab: {
     position: 'absolute',

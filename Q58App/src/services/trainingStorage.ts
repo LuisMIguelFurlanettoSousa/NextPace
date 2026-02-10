@@ -18,6 +18,8 @@ export interface Training {
   description: string;
   exercises: Exercise[];
   createdAt: string;
+  defaultRestSeconds?: number;  // Descanso padrão entre exercícios
+  rounds?: number;              // Repetições do treino (default: 1)
 }
 
 const TRAININGS_KEY = '@nextpace_trainings';

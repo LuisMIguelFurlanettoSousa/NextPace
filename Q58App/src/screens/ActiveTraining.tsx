@@ -38,6 +38,8 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   const [timeLeft, setTimeLeft] = useState(0);
   const [totalSetsCompleted, setTotalSetsCompleted] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [currentRound, setCurrentRound] = useState(1);
+  const [isDefaultRest, setIsDefaultRest] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const tapTimestamps = useRef<number[]>([]);
@@ -193,6 +195,8 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     return `${secs}s`;
   };
 
+  const totalRounds = training?.rounds || 1;
+
   // Move to next set or exercise
   const advanceWorkout = useCallback(() => {
     if (!currentExercise || !training) return;
@@ -207,33 +211,58 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     const isLastExercise = currentExerciseIndex >= training.exercises.length - 1;
 
     if (isLastSet && isLastExercise) {
-      // Training complete - no sound
-      setPhase('finished');
+      // Verifica se há mais rounds
+      if (currentRound < (training.rounds || 1)) {
+        setCurrentRound((prev) => prev + 1);
+        setCurrentExerciseIndex(0);
+        setCurrentSet(1);
+        const firstEx = training.exercises[0];
+        if (firstEx?.type === 'rest') {
+          setIsDefaultRest(false);
+          setTimeLeft(firstEx.durationSeconds || 0);
+          setPhase('resting');
+        } else if (training.defaultRestSeconds) {
+          setIsDefaultRest(true);
+          setTimeLeft(training.defaultRestSeconds);
+          setPhase('resting');
+        } else {
+          setIsDefaultRest(false);
+          if (firstEx?.setDurationSeconds) {
+            setTimeLeft(firstEx.setDurationSeconds);
+          }
+          setPhase('working');
+        }
+        triggerStartBeep();
+      } else {
+        setPhase('finished');
+      }
     } else if (isLastSet) {
-      // Next exercise
       const nextEx = training.exercises[currentExerciseIndex + 1];
       setCurrentExerciseIndex((prev) => prev + 1);
       setCurrentSet(1);
 
-      // Se próximo é card de descanso, inicia em fase de descanso
       if (nextEx?.type === 'rest') {
+        setIsDefaultRest(false);
         setTimeLeft(nextEx.durationSeconds || 0);
         setPhase('resting');
         triggerStartBeep();
-      } else if (currentExercise.type !== 'rest' && currentExercise.restSeconds) {
-        // Start rest if configured (só se o atual não for card de descanso)
-        setTimeLeft(currentExercise.restSeconds);
+      } else if (currentExercise.type !== 'rest' && training.defaultRestSeconds) {
+        setIsDefaultRest(true);
+        setTimeLeft(training.defaultRestSeconds);
         setPhase('resting');
         triggerStartBeep();
-      } else if (nextEx?.setDurationSeconds) {
-        setTimeLeft(nextEx.setDurationSeconds);
+      } else {
+        setIsDefaultRest(false);
+        if (nextEx?.setDurationSeconds) {
+          setTimeLeft(nextEx.setDurationSeconds);
+        }
         setPhase('working');
       }
     } else {
       // Next set
       setCurrentSet((prev) => prev + 1);
+      setIsDefaultRest(false);
 
-      // Start rest if configured
       if (currentExercise.restSeconds) {
         setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
@@ -242,19 +271,35 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
         setTimeLeft(currentExercise.setDurationSeconds);
       }
     }
-  }, [currentExercise, currentSet, currentExerciseIndex, training, triggerStartBeep]);
+  }, [currentExercise, currentSet, currentExerciseIndex, training, currentRound, triggerStartBeep]);
 
   // Start next working phase after rest
   const startNextWorkingPhase = useCallback(() => {
     if (!training) return;
 
+    setIsDefaultRest(false);
     const exercise = training.exercises[currentExerciseIndex];
 
     // Se o exercício atual é um card de descanso, avança para o próximo
     if (exercise?.type === 'rest') {
       const isLastExercise = currentExerciseIndex >= training.exercises.length - 1;
       if (isLastExercise) {
-        setPhase('finished');
+        if (currentRound < (training.rounds || 1)) {
+          setCurrentRound((prev) => prev + 1);
+          setCurrentExerciseIndex(0);
+          setCurrentSet(1);
+          const firstEx = training.exercises[0];
+          if (firstEx?.type === 'rest') {
+            setTimeLeft(firstEx.durationSeconds || 0);
+            setPhase('resting');
+          } else if (firstEx?.setDurationSeconds) {
+            setTimeLeft(firstEx.setDurationSeconds);
+            setPhase('working');
+          }
+          triggerStartBeep();
+        } else {
+          setPhase('finished');
+        }
       } else {
         const nextEx = training.exercises[currentExerciseIndex + 1];
         setCurrentExerciseIndex((prev) => prev + 1);
@@ -277,12 +322,12 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     }
     setPhase('working');
     triggerStartBeep();
-  }, [currentExerciseIndex, training, triggerStartBeep]);
+  }, [currentExerciseIndex, training, currentRound, triggerStartBeep]);
 
   // Reset warning flag when phase changes
   useEffect(() => {
     warningPlayedRef.current = false;
-  }, [phase, currentSet, currentExerciseIndex]);
+  }, [phase, currentSet, currentExerciseIndex, currentRound]);
 
   // Pause audio when timer is paused
   useEffect(() => {
@@ -416,7 +461,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           <Text style={styles.finishedTitle}>Treino Completo!</Text>
           <Text style={styles.finishedSubtitle}>{training.name}</Text>
           <Text style={styles.finishedStats}>
-            {totalSetsCompleted} séries • {totalExercises} exercícios
+            {totalSetsCompleted} séries • {totalExercises} exercícios{totalRounds > 1 ? ` • ${totalRounds} rounds` : ''}
           </Text>
           <Text style={styles.finishedDuration}>
             Tempo total: {formatDuration(elapsedTime)}
@@ -436,13 +481,15 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     );
   }
 
-  const progress = totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0;
+  const totalSetsAllRounds = totalSets * totalRounds;
+  const progress = totalSetsAllRounds > 0 ? (totalSetsCompleted / totalSetsAllRounds) * 100 : 0;
   const isWorking = phase === 'working';
   const isRestCard = currentExercise.type === 'rest';
+  const showRestCardStyle = isRestCard || isDefaultRest;
 
-  // Check if we have extra info to display (sets, reps, weight)
-  const hasSetInfo = currentExercise.sets !== undefined && !isRestCard;
-  const hasDetailsInfo = (currentExercise.reps !== undefined || currentExercise.weight !== undefined) && !isRestCard;
+  // Check if we have extra info to display (sets, reps, weight) - hide during rest phases
+  const hasSetInfo = currentExercise.sets !== undefined && !showRestCardStyle;
+  const hasDetailsInfo = (currentExercise.reps !== undefined || currentExercise.weight !== undefined) && !showRestCardStyle;
   const isMinimalMode = !hasSetInfo && !hasDetailsInfo;
   const timerSize = isMinimalMode ? 320 : 260;
 
@@ -473,10 +520,10 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
             </View>
             <View style={styles.progressInfo}>
               <Text style={styles.progressText}>
-                {totalSetsCompleted}/{totalSets} séries
+                {totalSetsCompleted}/{totalSets * totalRounds} séries{totalRounds > 1 ? ` • Round ${currentRound}/${totalRounds}` : ''}
               </Text>
               <Text style={styles.durationText}>
-                {formatDuration(elapsedTime)} / {formatDuration(totalDuration)}
+                {formatDuration(elapsedTime)} / {formatDuration(totalDuration * totalRounds)}
               </Text>
             </View>
           </View>
@@ -486,25 +533,25 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           {/* Phase Label */}
           <View style={[
             styles.phaseLabel,
-            isRestCard
+            showRestCardStyle
               ? styles.restCardLabel
               : (isWorking ? styles.workingLabel : styles.restingLabel)
           ]}>
-            <Text style={[styles.phaseLabelText, isRestCard && styles.restCardLabelText]}>
-              {isRestCard ? 'DESCANSO' : (isWorking ? 'EXECUTANDO' : 'DESCANSANDO')}
+            <Text style={[styles.phaseLabelText, showRestCardStyle && styles.restCardLabelText]}>
+              {showRestCardStyle ? 'DESCANSO' : (isWorking ? 'EXECUTANDO' : 'DESCANSANDO')}
             </Text>
           </View>
 
           {/* Exercise Info */}
           <Text style={styles.exerciseNumber}>
-            {isRestCard ? 'Intervalo' : `Exercício ${currentExerciseNumber}/${totalExercises}`}
+            {showRestCardStyle ? 'Intervalo' : `Exercício ${currentExerciseNumber}/${totalExercises}`}
           </Text>
           <Text style={[
             styles.exerciseName,
             isMinimalMode && styles.exerciseNameMinimal,
-            isRestCard && styles.restCardName
+            showRestCardStyle && styles.restCardName
           ]}>
-            {isRestCard ? 'Descanso' : currentExercise.name}
+            {showRestCardStyle ? 'Descanso' : currentExercise.name}
           </Text>
 
           {/* Set Info - only show if sets are defined */}
@@ -526,10 +573,10 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
                   ? currentExercise.durationSeconds || 0
                   : isWorking
                     ? currentExercise.setDurationSeconds || 0
-                    : currentExercise.restSeconds || 0
+                    : currentExercise.restSeconds || training?.defaultRestSeconds || 0
               }
               size={timerSize}
-              isResting={!isWorking || currentExercise.type === 'rest'}
+              isResting={!isWorking || showRestCardStyle}
               isPaused={isPaused}
             />
             {isPaused && (
@@ -559,17 +606,69 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
         </View>
 
         {/* Next Exercise Preview */}
-        {nextExercise && (
-          <View style={styles.nextExerciseContainer}>
-            <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
-            <Text style={[
-              styles.nextExerciseName,
-              nextExercise.type === 'rest' && styles.nextRestCardName
-            ]}>
-              {nextExercise.type === 'rest' ? 'Descanso' : nextExercise.name}
-            </Text>
-          </View>
-        )}
+        {(() => {
+          if (!training) return null;
+
+          const isLastExercise = currentExerciseIndex >= training.exercises.length - 1;
+
+          // Durante descanso padrão: próximo é o exercício que vai começar
+          if (isDefaultRest) {
+            return (
+              <View style={styles.nextExerciseContainer}>
+                <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
+                <Text style={styles.nextExerciseName}>{currentExercise.name}</Text>
+              </View>
+            );
+          }
+
+          // Último item do treino
+          if (isLastExercise) {
+            if (currentRound < totalRounds) {
+              const firstEx = training.exercises[0];
+              const firstName = firstEx?.type === 'rest' ? 'Descanso' : firstEx?.name;
+              return (
+                <View style={styles.nextExerciseContainer}>
+                  <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
+                  <Text style={styles.nextExerciseName}>
+                    Round {currentRound + 1} • {firstName}
+                  </Text>
+                </View>
+              );
+            }
+            return (
+              <View style={styles.nextExerciseContainer}>
+                <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
+                <Text style={styles.nextExerciseName}>Fim</Text>
+              </View>
+            );
+          }
+
+          const nextEx = training.exercises[currentExerciseIndex + 1];
+
+          // Exercício (não rest card) na última série → descanso padrão antes do próximo
+          if (phase === 'working' && currentExercise.type !== 'rest' && training.defaultRestSeconds && nextEx?.type !== 'rest') {
+            const exerciseSets = currentExercise.sets || 1;
+            if (currentSet >= exerciseSets) {
+              return (
+                <View style={styles.nextExerciseContainer}>
+                  <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
+                  <Text style={[styles.nextExerciseName, styles.nextRestCardName]}>Descanso</Text>
+                </View>
+              );
+            }
+          }
+
+          // Próximo item da lista
+          const isNextRest = nextEx?.type === 'rest';
+          return (
+            <View style={styles.nextExerciseContainer}>
+              <Text style={styles.nextExerciseLabel}>PRÓXIMO</Text>
+              <Text style={[styles.nextExerciseName, isNextRest && styles.nextRestCardName]}>
+                {isNextRest ? 'Descanso' : nextEx?.name}
+              </Text>
+            </View>
+          );
+        })()}
 
         {/* Control Buttons */}
         <View style={styles.controlsContainer}>
