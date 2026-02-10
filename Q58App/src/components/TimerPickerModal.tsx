@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   Modal,
   Platform,
   ScrollView,
@@ -73,6 +74,7 @@ const WheelPickerColumn: React.FC<{
 }> = ({ data, selectedValue, onValueChange, label, accentColor = colors.primary }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const initialScrollDone = useRef(false);
+  const isDragging = useRef(false);
 
   // Scroll to selected value on mount
   useEffect(() => {
@@ -84,19 +86,17 @@ const WheelPickerColumn: React.FC<{
             y: index * ITEM_HEIGHT,
             animated: false,
           });
-        }, 50);
+        }, 100);
       }
       initialScrollDone.current = true;
     }
   }, []);
 
-  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
+  const snapToIndex = (offsetY: number) => {
     const index = Math.round(offsetY / ITEM_HEIGHT);
     const clampedIndex = Math.max(0, Math.min(index, data.length - 1));
     const newValue = data[clampedIndex];
 
-    // Snap to the nearest item
     scrollViewRef.current?.scrollTo({
       y: clampedIndex * ITEM_HEIGHT,
       animated: true,
@@ -104,6 +104,26 @@ const WheelPickerColumn: React.FC<{
 
     if (newValue !== selectedValue) {
       onValueChange(newValue);
+    }
+  };
+
+  const handleScrollBeginDrag = () => {
+    isDragging.current = true;
+  };
+
+  const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isDragging.current = false;
+    // No Android, se não houver momentum, precisamos fazer o snap manualmente
+    // onMomentumScrollEnd pode não ser chamado se o usuário soltar sem velocidade
+    const velocity = event.nativeEvent.velocity?.y ?? 0;
+    if (Math.abs(velocity) < 0.5) {
+      snapToIndex(event.nativeEvent.contentOffset.y);
+    }
+  };
+
+  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!isDragging.current) {
+      snapToIndex(event.nativeEvent.contentOffset.y);
     }
   };
 
@@ -121,8 +141,11 @@ const WheelPickerColumn: React.FC<{
           snapToInterval={ITEM_HEIGHT}
           decelerationRate="fast"
           nestedScrollEnabled={true}
-          onMomentumScrollEnd={handleScrollEnd}
-          onScrollEndDrag={handleScrollEnd}
+          overScrollMode="never"
+          bounces={false}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEndDrag}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
         >
           {/* Top padding */}
           <View style={{ height: ITEM_HEIGHT }} />
@@ -234,15 +257,14 @@ export const TimerPickerModal: React.FC<TimerPickerModalProps> = ({
         animationType="fade"
         onRequestClose={onClose}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.pickerModalOverlay}
-          activeOpacity={1}
           onPress={onClose}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => {}}
+          <View
             style={styles.pickerModalContent}
+            onStartShouldSetResponder={() => true}
+            onTouchEnd={(e) => e.stopPropagation()}
           >
             <View style={styles.pickerModalHeader}>
               <Text style={styles.pickerModalTitle}>{title}</Text>
@@ -255,8 +277,8 @@ export const TimerPickerModal: React.FC<TimerPickerModalProps> = ({
               onChange={setTempValue}
               accentColor={accentColor}
             />
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </View>
+        </Pressable>
       </Modal>
     );
   }
