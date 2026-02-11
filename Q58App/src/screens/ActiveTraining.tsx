@@ -12,11 +12,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useAudioPlayer } from 'expo-audio';
+import { useKeepAwake } from 'expo-keep-awake';
 import { colors } from '../theme/colors';
 import { trainingStorage, Training, Exercise } from '../services/trainingStorage';
+import { workoutHistoryStorage } from '../services/workoutHistoryStorage';
 import { CircularTimer } from '../components/CircularTimer';
-
-const ALARM_SOUND_URL = 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getSoundSource } from '../constants/sounds';
 
 interface ActiveTrainingProps {
   trainingId: string;
@@ -24,17 +26,21 @@ interface ActiveTrainingProps {
   onGoToTrainingDetail: () => void;
 }
 
-type WorkoutPhase = 'working' | 'resting' | 'finished';
+type WorkoutPhase = 'countdown' | 'working' | 'resting' | 'finished';
 
 export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   trainingId,
   onGoBack,
   onGoToTrainingDetail,
 }) => {
+  useKeepAwake();
+  const insets = useSafeAreaInsets();
+
   const [training, setTraining] = useState<Training | null>(null);
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [currentSet, setCurrentSet] = useState(1);
-  const [phase, setPhase] = useState<WorkoutPhase>('working');
+  const [phase, setPhase] = useState<WorkoutPhase>('countdown');
+  const [countdownValue, setCountdownValue] = useState(3);
   const [timeLeft, setTimeLeft] = useState(0);
   const [totalSetsCompleted, setTotalSetsCompleted] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -42,9 +48,12 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   const [isDefaultRest, setIsDefaultRest] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const tapTimestamps = useRef<number[]>([]);
   const warningPlayedRef = useRef(false);
-  const player = useAudioPlayer(ALARM_SOUND_URL);
+  const workoutSavedRef = useRef(false);
+  const isSkippingRef = useRef(false);
+  const player = useAudioPlayer(getSoundSource(training?.alertSound));
 
   // Triple-tap to pause detection
   const handleScreenTap = useCallback(() => {
@@ -69,45 +78,52 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     loadTraining();
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
     };
   }, []);
+
+  // Countdown 3-2-1 antes de iniciar o treino
+  useEffect(() => {
+    if (phase !== 'countdown' || !training) return;
+
+    countdownTimerRef.current = setInterval(() => {
+      setCountdownValue((prev) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        if (prev <= 1) {
+          clearInterval(countdownTimerRef.current!);
+          // Se primeiro exercício é rest card, vai direto para resting
+          const firstExercise = training.exercises[0];
+          if (firstExercise?.type === 'rest') {
+            setPhase('resting');
+          } else {
+            setPhase('working');
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, [phase, training]);
 
   const loadTraining = async () => {
     const data = await trainingStorage.getById(trainingId);
     setTraining(data);
     if (data && data.exercises.length > 0) {
       const firstExercise = data.exercises[0];
-      // Se for um card de descanso, inicia em fase de descanso
+      // Prepara o timeLeft para quando o countdown terminar
       if (firstExercise.type === 'rest') {
         setTimeLeft(firstExercise.durationSeconds || 0);
-        setPhase('resting');
       } else if (firstExercise.setDurationSeconds) {
         setTimeLeft(firstExercise.setDurationSeconds);
       }
     }
   };
 
-  // Short beep when phase starts (1 second)
-  const triggerStartBeep = useCallback(async () => {
-    try {
-      player.volume = 0.5;
-      player.seekTo(0);
-      player.play();
-      // Stop after 1 second
-      setTimeout(() => {
-        try {
-          player.pause();
-        } catch (e) {
-          // Player may have been destroyed
-        }
-      }, 1000);
-    } catch (e) {
-      console.log('Error playing start beep:', e);
-    }
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [player]);
-
-  // Normal alarm at 5 seconds before end (full sound)
+  // Alarme sonoro a 5 segundos do fim
   const triggerWarning = useCallback(async () => {
     try {
       player.volume = 1.0;
@@ -128,56 +144,90 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   // Conta sets apenas de exercícios reais
   const totalSets = training?.exercises.filter(ex => ex.type !== 'rest').reduce((acc, ex) => acc + (ex.sets || 1), 0) || 0;
 
-  // Calculate total training duration in seconds
-  const totalDuration = training?.exercises.reduce((total, ex) => {
+  // Calcula duração de um exercício/item individual
+  const getItemDuration = (ex: Exercise, defaultRest: number, nextEx?: Exercise): number => {
+    if (ex.type === 'rest') {
+      return ex.durationSeconds || 0;
+    }
     const sets = ex.sets || 1;
-    const workTime = (ex.setDurationSeconds || 0) * sets;
-    const restTime = (ex.restSeconds || 0) * Math.max(0, sets - 1); // rest between sets
-    return total + workTime + restTime;
-  }, 0) || 0;
+    let duration = (ex.setDurationSeconds || 0) * sets;
+    duration += (ex.restSeconds || 0) * Math.max(0, sets - 1);
+    // Descanso padrão após exercício (se há próximo e não é rest card)
+    if (defaultRest && nextEx && nextEx.type !== 'rest') {
+      duration += defaultRest;
+    }
+    return duration;
+  };
 
-  // Calculate elapsed time based on workout progress (not real time)
+  // Duração total de 1 round
+  const singleRoundDuration = (() => {
+    if (!training) return 0;
+    const exercises = training.exercises;
+    let total = 0;
+    for (let i = 0; i < exercises.length; i++) {
+      total += getItemDuration(exercises[i], training.defaultRestSeconds || 0, exercises[i + 1]);
+    }
+    // Descanso padrão entre rounds (se há mais de 1 round e último item não é rest)
+    if ((training.rounds || 1) > 1 && exercises.length > 0 && exercises[exercises.length - 1].type !== 'rest' && training.defaultRestSeconds) {
+      total += training.defaultRestSeconds;
+    }
+    return total;
+  })();
+
+  const totalRounds = training?.rounds || 1;
+  const totalDuration = singleRoundDuration;
+
+  // Tempo decorrido baseado no progresso real do treino
   const elapsedTime = (() => {
     if (!training) return 0;
-
+    const exercises = training.exercises;
+    const defaultRest = training.defaultRestSeconds || 0;
     let elapsed = 0;
 
-    // Add time from fully completed exercises
+    // Rounds completos
+    const completedRounds = currentRound - 1;
+    elapsed += singleRoundDuration * completedRounds;
+
+    // Exercícios completos no round atual
     for (let i = 0; i < currentExerciseIndex; i++) {
-      const ex = training.exercises[i];
-      const sets = ex.sets || 1;
-      elapsed += (ex.setDurationSeconds || 0) * sets;
-      elapsed += (ex.restSeconds || 0) * Math.max(0, sets - 1);
+      elapsed += getItemDuration(exercises[i], defaultRest, exercises[i + 1]);
     }
 
-    // Add time from current exercise
-    if (currentExercise) {
-      const setDuration = currentExercise.setDurationSeconds || 0;
-      const restDuration = currentExercise.restSeconds || 0;
+    // Exercício atual
+    const ex = currentExercise;
+    if (!ex) return elapsed;
 
-      if (phase === 'working') {
-        // In working phase: currentSet is the set we're doing
-        // Completed sets = currentSet - 1
-        // Completed rests = currentSet - 1 (rest after each completed set)
-        const setsCompleted = currentSet - 1;
-        elapsed += setDuration * setsCompleted;
-        elapsed += restDuration * setsCompleted;
-        // Add progress in current set
-        elapsed += setDuration - timeLeft;
-      } else if (phase === 'resting') {
-        // In resting phase: currentSet was already incremented to the next set
-        // Completed sets = currentSet - 1
-        // Completed rests = currentSet - 2 (we're currently in a rest)
-        const setsCompleted = currentSet - 1;
-        const restsCompleted = Math.max(0, currentSet - 2);
-        elapsed += setDuration * setsCompleted;
-        elapsed += restDuration * restsCompleted;
-        // Add progress in current rest
-        elapsed += restDuration - timeLeft;
-      }
+    if (ex.type === 'rest') {
+      // Rest card: tempo total - tempo restante
+      const total = ex.durationSeconds || 0;
+      elapsed += total - timeLeft;
+    } else if (isDefaultRest) {
+      // Descanso padrão entre exercícios: o exercício anterior já foi contabilizado
+      // O currentExerciseIndex já avançou, então o exercício anterior está no loop acima
+      // Só falta o progresso do descanso padrão atual
+      elapsed += defaultRest - timeLeft;
+    } else if (phase === 'working') {
+      const setDuration = ex.setDurationSeconds || 0;
+      const restBetweenSets = ex.restSeconds || 0;
+      // Sets completos + descansos entre sets completos
+      const setsCompleted = currentSet - 1;
+      elapsed += setDuration * setsCompleted;
+      elapsed += restBetweenSets * setsCompleted;
+      // Progresso do set atual
+      elapsed += setDuration - timeLeft;
+    } else if (phase === 'resting') {
+      const setDuration = ex.setDurationSeconds || 0;
+      const restBetweenSets = ex.restSeconds || 0;
+      // Sets completos (currentSet já avançou para o próximo)
+      const setsCompleted = currentSet - 1;
+      const restsCompleted = Math.max(0, currentSet - 2);
+      elapsed += setDuration * setsCompleted;
+      elapsed += restBetweenSets * restsCompleted;
+      // Progresso do descanso atual
+      elapsed += restBetweenSets - timeLeft;
     }
 
-    return elapsed;
+    return Math.max(0, elapsed);
   })();
 
   // Smart duration format - only shows hours/min when needed
@@ -195,11 +245,15 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     return `${secs}s`;
   };
 
-  const totalRounds = training?.rounds || 1;
+  // Para o som do alerta ao trocar de fase
+  const stopAlert = useCallback(() => {
+    try { player.pause(); } catch (_) {}
+  }, [player]);
 
   // Move to next set or exercise
   const advanceWorkout = useCallback(() => {
     if (!currentExercise || !training) return;
+    stopAlert();
 
     // Se for um card de descanso, não conta como set completado
     if (currentExercise.type !== 'rest') {
@@ -232,7 +286,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           }
           setPhase('working');
         }
-        triggerStartBeep();
+
       } else {
         setPhase('finished');
       }
@@ -245,12 +299,12 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
         setIsDefaultRest(false);
         setTimeLeft(nextEx.durationSeconds || 0);
         setPhase('resting');
-        triggerStartBeep();
+
       } else if (currentExercise.type !== 'rest' && training.defaultRestSeconds) {
         setIsDefaultRest(true);
         setTimeLeft(training.defaultRestSeconds);
         setPhase('resting');
-        triggerStartBeep();
+
       } else {
         setIsDefaultRest(false);
         if (nextEx?.setDurationSeconds) {
@@ -266,16 +320,17 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       if (currentExercise.restSeconds) {
         setTimeLeft(currentExercise.restSeconds);
         setPhase('resting');
-        triggerStartBeep();
+
       } else if (currentExercise.setDurationSeconds) {
         setTimeLeft(currentExercise.setDurationSeconds);
       }
     }
-  }, [currentExercise, currentSet, currentExerciseIndex, training, currentRound, triggerStartBeep]);
+  }, [currentExercise, currentSet, currentExerciseIndex, training, currentRound, stopAlert]);
 
   // Start next working phase after rest
   const startNextWorkingPhase = useCallback(() => {
     if (!training) return;
+    stopAlert();
 
     setIsDefaultRest(false);
     const exercise = training.exercises[currentExerciseIndex];
@@ -296,7 +351,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
             setTimeLeft(firstEx.setDurationSeconds);
             setPhase('working');
           }
-          triggerStartBeep();
+  
         } else {
           setPhase('finished');
         }
@@ -312,7 +367,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
           setTimeLeft(nextEx.setDurationSeconds);
           setPhase('working');
         }
-        triggerStartBeep();
+
       }
       return;
     }
@@ -321,8 +376,23 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       setTimeLeft(exercise.setDurationSeconds);
     }
     setPhase('working');
-    triggerStartBeep();
-  }, [currentExerciseIndex, training, currentRound, triggerStartBeep]);
+  }, [currentExerciseIndex, training, currentRound, stopAlert]);
+
+  // Salvar histórico quando treino finaliza
+  useEffect(() => {
+    if (phase === 'finished' && training && !workoutSavedRef.current) {
+      workoutSavedRef.current = true;
+      workoutHistoryStorage.save({
+        trainingId: training.id,
+        trainingName: training.name,
+        completedAt: new Date().toISOString(),
+        durationSeconds: elapsedTime,
+        setsCompleted: totalSetsCompleted,
+        exercisesCompleted: totalExercises,
+        roundsCompleted: currentRound,
+      });
+    }
+  }, [phase, training, totalSetsCompleted, totalExercises, currentRound, elapsedTime]);
 
   // Reset warning flag when phase changes
   useEffect(() => {
@@ -342,14 +412,15 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
 
   // Main timer effect
   useEffect(() => {
-    if (isPaused || phase === 'finished' || timeLeft <= 0) {
+    if (isPaused || phase === 'finished' || phase === 'countdown' || timeLeft <= 0) {
       return;
     }
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
-        // 5-second warning
-        if (prev === 6 && !warningPlayedRef.current) {
+        // Alerta X segundos antes do fim (configurável, padrão 5s)
+        const alertBefore = training?.alertSecondsBeforeEnd ?? 5;
+        if (alertBefore > 0 && prev === alertBefore + 1 && !warningPlayedRef.current) {
           warningPlayedRef.current = true;
           triggerWarning();
         }
@@ -357,13 +428,13 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
         if (prev <= 1) {
           clearInterval(timerRef.current!);
 
-          // Timer ended - advance to next phase
-          if (phase === 'working') {
-            // Set finished - go to rest or next set
-            setTimeout(() => advanceWorkout(), 100);
-          } else if (phase === 'resting') {
-            // Rest finished - start next working phase
-            setTimeout(() => startNextWorkingPhase(), 100);
+          // Timer ended - advance to next phase (skip guard prevents double-advance)
+          if (!isSkippingRef.current) {
+            if (phase === 'working') {
+              setTimeout(() => advanceWorkout(), 100);
+            } else if (phase === 'resting') {
+              setTimeout(() => startNextWorkingPhase(), 100);
+            }
           }
 
           return 0;
@@ -382,14 +453,17 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   };
 
   const skipPhase = () => {
+    isSkippingRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
-    setTimeLeft(0);
 
     if (phase === 'working') {
       advanceWorkout();
     } else if (phase === 'resting') {
       startNextWorkingPhase();
     }
+
+    // Libera o guard após o React processar as atualizações
+    setTimeout(() => { isSkippingRef.current = false; }, 200);
   };
 
   const handleCancel = () => {
@@ -408,6 +482,25 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Carregando...</Text>
       </View>
+    );
+  }
+
+  // Tela de countdown 3-2-1
+  if (phase === 'countdown') {
+    return (
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
+        style={styles.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.countdownContainer}>
+          <StatusBar style="light" />
+          <Text style={styles.countdownLabel}>PREPARE-SE</Text>
+          <Text style={styles.countdownNumber}>{countdownValue}</Text>
+          <Text style={styles.countdownTrainingName}>{training.name}</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
@@ -671,7 +764,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
         })()}
 
         {/* Control Buttons */}
-        <View style={styles.controlsContainer}>
+        <View style={[styles.controlsContainer, { paddingBottom: 20 + insets.bottom }]}>
           <TouchableOpacity style={styles.skipButton} onPress={skipPhase}>
             <Ionicons name="play-forward" size={24} color={colors.textSecondary} />
             <Text style={styles.skipButtonText}>Pular</Text>
@@ -915,7 +1008,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 40,
-    paddingBottom: 50,
   },
   skipButton: {
     flexDirection: 'row',
@@ -981,6 +1073,31 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Countdown
+  countdownContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  countdownLabel: {
+    color: colors.textSecondary,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 4,
+    marginBottom: 20,
+  },
+  countdownNumber: {
+    color: colors.primary,
+    fontSize: 120,
+    fontWeight: '700',
+    lineHeight: 130,
+  },
+  countdownTrainingName: {
+    color: colors.textMuted,
+    fontSize: 16,
+    marginTop: 20,
   },
   // Finished
   finishedContainer: {

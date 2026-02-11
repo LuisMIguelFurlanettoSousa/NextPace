@@ -11,6 +11,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 
 interface ProfileProps {
@@ -25,6 +26,7 @@ const MOCK_USER = {
 };
 
 export const Profile: React.FC<ProfileProps> = ({ onGoBack }) => {
+  const insets = useSafeAreaInsets();
   const [showPassword, setShowPassword] = useState(false);
 
   const handleChangePassword = () => {
@@ -61,7 +63,7 @@ export const Profile: React.FC<ProfileProps> = ({ onGoBack }) => {
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top + 16 }]}>
         <StatusBar style="light" />
 
         {/* Header */}
@@ -73,7 +75,7 @@ export const Profile: React.FC<ProfileProps> = ({ onGoBack }) => {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, { paddingBottom: 20 + insets.bottom }]}>
           {/* Avatar */}
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
@@ -181,7 +183,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',
@@ -211,7 +212,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
   },
   avatarContainer: {
     alignItems: 'center',

@@ -20,6 +20,9 @@ export interface Training {
   createdAt: string;
   defaultRestSeconds?: number;  // Descanso padrão entre exercícios
   rounds?: number;              // Repetições do treino (default: 1)
+  isFavorite?: boolean;         // Treino favorito
+  alertSound?: string;          // ID do som de alerta customizado
+  alertSecondsBeforeEnd?: number; // Segundos antes do fim para tocar alerta (default: 5)
 }
 
 const TRAININGS_KEY = '@nextpace_trainings';
@@ -140,6 +143,75 @@ export const trainingStorage = {
     } catch (error) {
       console.error('Error removing exercise:', error);
       throw error;
+    }
+  },
+
+  async duplicate(id: string): Promise<Training | null> {
+    try {
+      const trainings = await this.getAll();
+      const original = trainings.find((t) => t.id === id);
+      if (!original) return null;
+
+      // Extrai o nome base (remove sufixo "(cópia)" ou "(cópia #N)")
+      const baseName = original.name.replace(/\s*\(cópia(?:\s*#\d+)?\)$/, '');
+
+      // Encontra o próximo número disponível
+      const existingNumbers = trainings
+        .map((t) => {
+          const match = t.name.match(new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\(cópia(?:\\s*#(\\d+))?\\)$`));
+          if (!match) return 0;
+          return match[1] ? parseInt(match[1]) : 1;
+        })
+        .filter((n) => n > 0);
+
+      const nextNumber = existingNumbers.length === 0 ? 1 : Math.max(...existingNumbers) + 1;
+      const copyName = nextNumber === 1
+        ? `${baseName} (cópia)`
+        : `${baseName} (cópia #${nextNumber})`;
+
+      const newTraining: Training = {
+        ...original,
+        id: Date.now().toString(),
+        name: copyName,
+        createdAt: new Date().toISOString(),
+        isFavorite: undefined,
+        exercises: original.exercises.map((ex) => ({
+          ...ex,
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        })),
+      };
+
+      trainings.push(newTraining);
+      await AsyncStorage.setItem(TRAININGS_KEY, JSON.stringify(trainings));
+      return newTraining;
+    } catch (error) {
+      console.error('Error duplicating training:', error);
+      throw error;
+    }
+  },
+
+  async toggleFavorite(id: string): Promise<boolean> {
+    try {
+      const trainings = await this.getAll();
+      const training = trainings.find((t) => t.id === id);
+      if (!training) return false;
+
+      training.isFavorite = !training.isFavorite;
+      await AsyncStorage.setItem(TRAININGS_KEY, JSON.stringify(trainings));
+      return training.isFavorite;
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      throw error;
+    }
+  },
+
+  async getFavorites(): Promise<Training[]> {
+    try {
+      const trainings = await this.getAll();
+      return trainings.filter((t) => t.isFavorite === true);
+    } catch (error) {
+      console.error('Error getting favorites:', error);
+      return [];
     }
   },
 
