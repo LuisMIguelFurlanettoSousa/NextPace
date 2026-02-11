@@ -20,6 +20,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { trainingStorage, Exercise, formatTime } from '../services/trainingStorage';
 import { TimerPickerModal, TimerButton, TimerPresets, REST_PRESETS } from '../components/TimerPickerModal';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SoundPicker } from '../components/SoundPicker';
 
 interface AddTrainingProps {
   onGoBack: () => void;
@@ -29,6 +31,7 @@ interface AddTrainingProps {
 type TempExercise = Omit<Exercise, 'id'> & { tempId: string };
 
 export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) => {
+  const insets = useSafeAreaInsets();
   const [trainingName, setTrainingName] = useState('');
   const [description, setDescription] = useState('');
   const [exercises, setExercises] = useState<TempExercise[]>([]);
@@ -71,6 +74,8 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
   const [rounds, setRounds] = useState('');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showDefaultRestPicker, setShowDefaultRestPicker] = useState(false);
+  const [alertSound, setAlertSound] = useState<string | undefined>(undefined);
+  const [alertSecondsBeforeEnd, setAlertSecondsBeforeEnd] = useState('5');
 
   // Menu de seleção de tipo e modal de descanso
   const [showTypeMenu, setShowTypeMenu] = useState(false);
@@ -92,6 +97,8 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
         description: description.trim(),
         defaultRestSeconds,
         rounds: rounds ? parseInt(rounds) : undefined,
+        alertSound,
+        alertSecondsBeforeEnd: alertSecondsBeforeEnd ? parseInt(alertSecondsBeforeEnd) : 5,
       });
 
       for (const exercise of exercises) {
@@ -210,7 +217,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
     setShowRestModal(true);
   };
 
-  const hasSettings = defaultRestSeconds !== undefined || (rounds !== '' && parseInt(rounds) > 1);
+  const hasSettings = defaultRestSeconds !== undefined || (rounds !== '' && parseInt(rounds) > 1) || alertSound !== undefined || (alertSecondsBeforeEnd !== '' && alertSecondsBeforeEnd !== '5');
   const isFormValid = trainingName.trim().length > 0 && !saving;
 
   return (
@@ -220,7 +227,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top + 16 }]}>
         <StatusBar style="light" />
 
         <View style={styles.header}>
@@ -504,7 +511,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
               </ScrollView>
 
               {/* Botão fixo na parte inferior */}
-              <View style={styles.modalFooter}>
+              <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity
                   style={[
                     styles.modalSaveButton,
@@ -609,7 +616,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                 </View>
               </View>
 
-              <View style={styles.modalFooter}>
+              <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity
                   style={[styles.restSaveButton, !restCardDuration && styles.modalSaveButtonDisabled]}
                   onPress={handleAddRestCard}
@@ -684,9 +691,32 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
                     keyboardType="number-pad"
                   />
                 </View>
+
+                <View style={styles.modalInputGroup}>
+                  <Text style={styles.modalLabel}>Alerta antes do fim (segundos)</Text>
+                  <Text style={styles.settingsHint}>
+                    Quantos segundos antes do fim o som toca
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="5"
+                    placeholderTextColor={colors.textMuted}
+                    value={alertSecondsBeforeEnd}
+                    onChangeText={setAlertSecondsBeforeEnd}
+                    keyboardType="number-pad"
+                  />
+                </View>
+
+                <View style={styles.modalInputGroup}>
+                  <Text style={styles.modalLabel}>Som de alerta</Text>
+                  <Text style={styles.settingsHint}>
+                    Som tocado quando o tempo está acabando
+                  </Text>
+                  <SoundPicker value={alertSound} onChange={setAlertSound} />
+                </View>
               </ScrollView>
 
-              <View style={styles.modalFooter}>
+              <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity
                   style={styles.modalSaveButton}
                   onPress={() => setShowSettingsModal(false)}
@@ -717,7 +747,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',
@@ -1004,7 +1033,6 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     paddingVertical: 16,
-    paddingBottom: Platform.OS === 'android' ? 32 : 24,
   },
   modalTitle: {
     color: colors.textPrimary,

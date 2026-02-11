@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { trainingStorage, Training } from '../services/trainingStorage';
 
@@ -19,6 +21,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
   onSelectTraining,
   onStartTraining,
 }) => {
+  const insets = useSafeAreaInsets();
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -46,6 +49,37 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
     }
   };
 
+  const handleDuplicate = async (id: string) => {
+    try {
+      const duplicated = await trainingStorage.duplicate(id);
+      if (duplicated) {
+        setTrainings((prev) => [...prev, duplicated]);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      console.error('Error duplicating training:', error);
+    }
+  };
+
+  const handleToggleFavorite = async (id: string) => {
+    try {
+      const isFavorite = await trainingStorage.toggleFavorite(id);
+      setTrainings((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, isFavorite } : t))
+      );
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+    }
+  };
+
+  // Ordenar: favoritos primeiro
+  const sortedTrainings = [...trainings].sort((a, b) => {
+    if (a.isFavorite && !b.isFavorite) return -1;
+    if (!a.isFavorite && b.isFavorite) return 1;
+    return 0;
+  });
+
   return (
     <LinearGradient
       colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
@@ -53,7 +87,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top + 16 }]}>
         <StatusBar style="light" />
 
         {/* Header */}
@@ -65,7 +99,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, { paddingBottom: 20 + insets.bottom }]}>
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={colors.primary} />
@@ -84,7 +118,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
           ) : (
             /* Training List */
             <View style={styles.trainingList}>
-              {trainings.map((training) => (
+              {sortedTrainings.map((training) => (
                 <View key={training.id} style={styles.trainingCard}>
                   {/* Play Button */}
                   <TouchableOpacity
@@ -110,19 +144,54 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
                   >
                     <Text style={styles.trainingName}>{training.name}</Text>
                     <Text style={styles.exerciseCount}>
-                      {training.exercises?.filter(e => e.type !== 'rest').length || 0} exercício
-                      {(training.exercises?.filter(e => e.type !== 'rest').length || 0) !== 1 ? 's' : ''}
-                      {(training.exercises?.filter(e => e.type === 'rest').length || 0) > 0 &&
-                        ` + ${training.exercises?.filter(e => e.type === 'rest').length} descanso${(training.exercises?.filter(e => e.type === 'rest').length || 0) !== 1 ? 's' : ''}`
-                      }
+                      {(() => {
+                        const exercises = training.exercises || [];
+                        const rounds = training.rounds || 1;
+                        const exerciseCount = exercises.filter(e => e.type !== 'rest').length;
+                        const restCardCount = exercises.filter(e => e.type === 'rest').length;
+
+                        let defaultRestCount = 0;
+                        if (training.defaultRestSeconds) {
+                          for (let i = 0; i < exercises.length; i++) {
+                            if (exercises[i].type !== 'rest' && exercises[i + 1] && exercises[i + 1].type !== 'rest') {
+                              defaultRestCount++;
+                            }
+                          }
+                        }
+
+                        const totalExercises = exerciseCount * rounds;
+                        const totalRests = (restCardCount + defaultRestCount) * rounds;
+
+                        let text = `${totalExercises} exercício${totalExercises !== 1 ? 's' : ''}`;
+                        if (totalRests > 0) {
+                          text += ` + ${totalRests} descanso${totalRests !== 1 ? 's' : ''}`;
+                        }
+                        return text;
+                      })()}
                     </Text>
                   </TouchableOpacity>
 
                   {/* Actions */}
                   <View style={styles.trainingActions}>
                     <TouchableOpacity
+                      onPress={() => handleToggleFavorite(training.id)}
+                      style={styles.actionButton}
+                    >
+                      <Ionicons
+                        name={training.isFavorite ? 'star' : 'star-outline'}
+                        size={20}
+                        color={training.isFavorite ? '#FFD700' : colors.textMuted}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDuplicate(training.id)}
+                      style={styles.actionButton}
+                    >
+                      <Ionicons name="copy-outline" size={20} color={colors.textMuted} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       onPress={() => handleDelete(training.id)}
-                      style={styles.deleteButton}
+                      style={styles.actionButton}
                     >
                       <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
                     </TouchableOpacity>
@@ -137,7 +206,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
         </ScrollView>
 
         {/* Floating Add Button */}
-        <TouchableOpacity style={styles.fab} onPress={onAddTraining}>
+        <TouchableOpacity style={[styles.fab, { bottom: 20 + insets.bottom }]} onPress={onAddTraining}>
           <LinearGradient
             colors={[colors.primary, colors.primaryDark]}
             style={styles.fabGradient}
@@ -158,7 +227,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',
@@ -266,7 +334,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  deleteButton: {
+  actionButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -275,7 +343,6 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 30,
     right: 20,
     borderRadius: 30,
     shadowColor: colors.primary,

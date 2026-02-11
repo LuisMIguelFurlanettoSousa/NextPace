@@ -18,13 +18,17 @@ import { colors } from '../theme/colors';
 import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
 import { TimerPickerModal, TimerButton, TimerPresets, REST_PRESETS } from '../components/TimerPickerModal';
 import { DraggableList } from '../components/DraggableList';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SoundPicker } from '../components/SoundPicker';
 
 interface TrainingDetailProps {
   trainingId: string;
   onGoBack: () => void;
+  onStartTraining: (trainingId: string) => void;
 }
 
-export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGoBack }) => {
+export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGoBack, onStartTraining }) => {
+  const insets = useSafeAreaInsets();
   const [training, setTraining] = useState<Training | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
@@ -51,8 +55,10 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   const [defaultRestSeconds, setDefaultRestSeconds] = useState<number | undefined>(undefined);
   const [rounds, setRounds] = useState('');
   const [showDefaultRestPicker, setShowDefaultRestPicker] = useState(false);
+  const [alertSound, setAlertSound] = useState<string | undefined>(undefined);
+  const [alertSecondsBeforeEnd, setAlertSecondsBeforeEnd] = useState('5');
 
-  const hasSettings = defaultRestSeconds !== undefined || (rounds !== '' && parseInt(rounds) > 1);
+  const hasSettings = defaultRestSeconds !== undefined || (rounds !== '' && parseInt(rounds) > 1) || alertSound !== undefined || (alertSecondsBeforeEnd !== '' && alertSecondsBeforeEnd !== '5');
   const isEditing = editingExerciseId !== null;
   const isEditingRestCard = editingRestCardId !== null;
 
@@ -66,6 +72,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     if (data) {
       setDefaultRestSeconds(data.defaultRestSeconds);
       setRounds(data.rounds ? String(data.rounds) : '');
+      setAlertSound(data.alertSound);
+      setAlertSecondsBeforeEnd(data.alertSecondsBeforeEnd ? String(data.alertSecondsBeforeEnd) : '5');
     }
   };
 
@@ -188,6 +196,8 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
       await trainingStorage.update(trainingId, {
         defaultRestSeconds,
         rounds: rounds ? parseInt(rounds) : undefined,
+        alertSound,
+        alertSecondsBeforeEnd: alertSecondsBeforeEnd ? parseInt(alertSecondsBeforeEnd) : 5,
       });
       await loadTraining();
       setShowSettingsModal(false);
@@ -317,7 +327,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top + 16 }]}>
         <StatusBar style="light" />
 
         <View style={styles.header}>
@@ -373,16 +383,34 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           </ScrollView>
         )}
 
-        <TouchableOpacity style={styles.fab} onPress={handleAddButtonPress}>
-          <LinearGradient
-            colors={[colors.primary, colors.primaryDark]}
-            style={styles.fabGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+        {/* Floating Action Buttons */}
+        <View style={[styles.fabContainer, { bottom: 20 + insets.bottom }]}>
+          <TouchableOpacity
+            style={styles.fabStart}
+            onPress={() => onStartTraining(trainingId)}
+            disabled={!training?.exercises?.length}
           >
-            <Ionicons name="add" size={32} color={colors.textPrimary} />
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={training?.exercises?.length ? ['#34C759', '#2AA84B'] : [colors.inactive, colors.inactive]}
+              style={styles.fabGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="play" size={24} color={colors.textPrimary} />
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.fab} onPress={handleAddButtonPress}>
+            <LinearGradient
+              colors={[colors.primary, colors.primaryDark]}
+              style={styles.fabGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="add" size={32} color={colors.textPrimary} />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
 
         {/* Menu de seleção de tipo */}
         <Modal
@@ -510,7 +538,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
               </ScrollView>
 
               {/* Botão fixo na parte inferior */}
-              <View style={styles.modalFooter}>
+              <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity
                   style={[styles.saveButton, !exerciseName.trim() && styles.saveButtonDisabled]}
                   onPress={handleSaveExercise}
@@ -577,7 +605,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                 </View>
               </View>
 
-              <View style={styles.modalFooter}>
+              <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity
                   style={[styles.restSaveButton, !restCardDuration && styles.saveButtonDisabled]}
                   onPress={handleSaveRestCard}
@@ -654,9 +682,32 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
                     keyboardType="number-pad"
                   />
                 </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Alerta antes do fim (segundos)</Text>
+                  <Text style={styles.settingsHint}>
+                    Quantos segundos antes do fim o som toca
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="5"
+                    placeholderTextColor={colors.textMuted}
+                    value={alertSecondsBeforeEnd}
+                    onChangeText={setAlertSecondsBeforeEnd}
+                    keyboardType="number-pad"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Som de alerta</Text>
+                  <Text style={styles.settingsHint}>
+                    Som tocado quando o tempo está acabando
+                  </Text>
+                  <SoundPicker value={alertSound} onChange={setAlertSound} />
+                </View>
               </ScrollView>
 
-              <View style={styles.modalFooter}>
+              <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 16 }]}>
                 <TouchableOpacity
                   style={styles.saveButton}
                   onPress={handleSaveSettings}
@@ -687,7 +738,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingTop: 60,
   },
   scrollView: {
     flex: 1,
@@ -1016,10 +1066,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 12,
   },
-  fab: {
+  fabContainer: {
     position: 'absolute',
     bottom: 30,
     right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  fabStart: {
+    borderRadius: 28,
+    shadowColor: '#34C759',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  fab: {
     borderRadius: 30,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
@@ -1064,7 +1127,6 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     paddingVertical: 16,
-    paddingBottom: Platform.OS === 'android' ? 32 : 24,
   },
   inputGroup: {
     marginBottom: 16,

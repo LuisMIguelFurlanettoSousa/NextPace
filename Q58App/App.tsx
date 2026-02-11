@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Dashboard } from './src/screens/Dashboard';
 import { MyTrainings } from './src/screens/MyTrainings';
 import { AddTraining } from './src/screens/AddTraining';
@@ -47,39 +48,49 @@ export default function App() {
     setCurrentScreen('TrainingDetail');
   }, []);
 
-  switch (currentScreen) {
-    case 'MyTrainings':
-      return (
-        <MyTrainings
-          key={refreshKey}
-          onAddTraining={() => navigate('AddTraining')}
-          onGoBack={goBack}
-          onSelectTraining={onSelectTraining}
-          onStartTraining={onStartTraining}
-        />
-      );
-    case 'AddTraining':
-      return <AddTraining onGoBack={goBack} onSave={onTrainingSaved} />;
-    case 'TrainingDetail':
-      return selectedTrainingId ? (
-        <TrainingDetail trainingId={selectedTrainingId} onGoBack={goBack} />
-      ) : null;
-    case 'ActiveTraining':
-      return selectedTrainingId ? (
-        <ActiveTraining
-          trainingId={selectedTrainingId}
-          onGoBack={goBack}
-          onGoToTrainingDetail={goToTrainingDetail}
-        />
-      ) : null;
-    case 'Profile':
-      return <Profile onGoBack={goBack} />;
-    default:
-      return (
-        <Dashboard
-          onTrainingPress={() => navigate('MyTrainings')}
-          onProfilePress={() => navigate('Profile')}
-        />
-      );
-  }
+  const renderScreen = () => {
+    switch (currentScreen) {
+      case 'MyTrainings':
+        return (
+          <MyTrainings
+            key={refreshKey}
+            onAddTraining={() => navigate('AddTraining')}
+            onGoBack={goBack}
+            onSelectTraining={onSelectTraining}
+            onStartTraining={onStartTraining}
+          />
+        );
+      case 'AddTraining':
+        return <AddTraining onGoBack={goBack} onSave={onTrainingSaved} />;
+      case 'TrainingDetail':
+        return selectedTrainingId ? (
+          <TrainingDetail trainingId={selectedTrainingId} onGoBack={goBack} onStartTraining={onStartTraining} />
+        ) : null;
+      case 'ActiveTraining':
+        return selectedTrainingId ? (
+          <ActiveTraining
+            trainingId={selectedTrainingId}
+            onGoBack={goBack}
+            onGoToTrainingDetail={goToTrainingDetail}
+          />
+        ) : null;
+      case 'Profile':
+        return <Profile onGoBack={goBack} />;
+      default:
+        return (
+          <Dashboard
+            onTrainingPress={() => navigate('MyTrainings')}
+            onProfilePress={() => navigate('Profile')}
+            onQuickStart={onStartTraining}
+            onSelectTraining={onSelectTraining}
+          />
+        );
+    }
+  };
+
+  return (
+    <SafeAreaProvider>
+      {renderScreen()}
+    </SafeAreaProvider>
+  );
 }

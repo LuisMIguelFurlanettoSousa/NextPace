@@ -1,16 +1,71 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
+import { workoutHistoryStorage, WorkoutLog, WeeklySummary as WeeklySummaryData } from '../services/workoutHistoryStorage';
+import { trainingStorage, Training } from '../services/trainingStorage';
+import { QuickStartCard } from '../components/QuickStartCard';
+import { WeeklySummary } from '../components/WeeklySummary';
+import { ActivityCalendar } from '../components/ActivityCalendar';
+import { LastWorkoutCard } from '../components/LastWorkoutCard';
 
 interface DashboardProps {
   onTrainingPress: () => void;
   onProfilePress: () => void;
+  onQuickStart: (trainingId: string) => void;
+  onSelectTraining: (trainingId: string) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress, onProfilePress }) => {
+const getGreeting = (): string => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Bom dia!';
+  if (hour < 18) return 'Boa tarde!';
+  return 'Boa noite!';
+};
+
+export const Dashboard: React.FC<DashboardProps> = ({
+  onTrainingPress,
+  onProfilePress,
+  onQuickStart,
+  onSelectTraining,
+}) => {
+  const insets = useSafeAreaInsets();
+  const [lastWorkout, setLastWorkout] = useState<WorkoutLog | null>(null);
+  const [weeklySummary, setWeeklySummary] = useState<WeeklySummaryData>({ workouts: 0, totalSeconds: 0, totalSets: 0 });
+  const [activeDays, setActiveDays] = useState<Set<number>>(new Set());
+  const [favorites, setFavorites] = useState<Training[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const now = new Date();
+
+  const loadData = useCallback(async () => {
+    const [last, summary, days, favs] = await Promise.all([
+      workoutHistoryStorage.getLastWorkout(),
+      workoutHistoryStorage.getWeeklySummary(),
+      workoutHistoryStorage.getMonthActivity(now.getFullYear(), now.getMonth()),
+      trainingStorage.getFavorites(),
+    ]);
+    setLastWorkout(last);
+    setWeeklySummary(summary);
+    setActiveDays(days);
+    setFavorites(favs);
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData]);
+
+  const hasHistory = lastWorkout !== null;
+
   return (
     <LinearGradient
       colors={[colors.gradientStart, colors.gradientMiddle, colors.gradientEnd]}
@@ -18,16 +73,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress, onProfile
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top + 16 }]}>
         <StatusBar style="light" />
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 20 + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
+          }
         >
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.greeting}>Olá!</Text>
+              <Text style={styles.greeting}>{getGreeting()}</Text>
               <Text style={styles.headerTitle}>NextPace</Text>
             </View>
             <TouchableOpacity onPress={onProfilePress} style={styles.profileButton}>
@@ -35,41 +98,67 @@ export const Dashboard: React.FC<DashboardProps> = ({ onTrainingPress, onProfile
             </TouchableOpacity>
           </View>
 
-          {/* Main CTA - Training Button */}
+          {/* Quick Start / CTA Principal */}
           <View style={styles.section}>
-            <TouchableOpacity onPress={onTrainingPress} activeOpacity={0.8}>
-              <LinearGradient
-                colors={[colors.primary, colors.primaryDark]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.trainingButton}
-              >
-                <View style={styles.iconWrapper}>
-                  <Ionicons name="fitness" size={32} color="#fff" />
-                </View>
-                <View style={styles.textContainer}>
-                  <Text style={styles.buttonTitle}>Meus Treinos</Text>
-                  <Text style={styles.buttonSubtitle}>Iniciar cronômetro</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.8)" />
-              </LinearGradient>
-            </TouchableOpacity>
+            <QuickStartCard
+              onGoToTrainings={onTrainingPress}
+            />
           </View>
 
-          {/* Quick Stats */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Resumo</Text>
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statValue}>0h</Text>
-                <Text style={styles.statLabel}>Esta semana</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statValue}>0</Text>
-                <Text style={styles.statLabel}>Treinos</Text>
-              </View>
+          {/* Favoritos */}
+          {favorites.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Favoritos</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.favoritesScroll}
+              >
+                {favorites.map((fav) => (
+                  <TouchableOpacity
+                    key={fav.id}
+                    style={styles.favoriteCard}
+                    onPress={() => onQuickStart(fav.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="star" size={16} color="#FFD700" />
+                    <Text style={styles.favoriteName} numberOfLines={1}>{fav.name}</Text>
+                    <Text style={styles.favoriteInfo}>
+                      {(fav.exercises?.filter(e => e.type !== 'rest').length || 0) * (fav.rounds || 1)} exercícios
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
+          )}
+
+          {/* Resumo Semanal */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Esta semana</Text>
+            <WeeklySummary summary={weeklySummary} />
           </View>
+
+          {/* Calendário de Atividade */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Atividade</Text>
+            <ActivityCalendar
+              activeDays={activeDays}
+              year={now.getFullYear()}
+              month={now.getMonth()}
+            />
+          </View>
+
+          {/* Último Treino */}
+          {lastWorkout && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Último treino</Text>
+              <LastWorkoutCard
+                workout={lastWorkout}
+                onPress={onSelectTraining}
+              />
+            </View>
+          )}
+
         </ScrollView>
       </View>
     </LinearGradient>
@@ -82,7 +171,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingTop: 60,
   },
   scrollView: {
     flex: 1,
@@ -94,7 +182,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 24,
   },
   profileButton: {
     width: 44,
@@ -111,71 +199,40 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: colors.textPrimary,
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   sectionTitle: {
     color: colors.textSecondary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  trainingButton: {
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-  },
-  iconWrapper: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textContainer: {
-    marginLeft: 16,
-    marginRight: 16,
-    flexShrink: 1,
-    flexGrow: 1,
-  },
-  buttonTitle: {
-    color: colors.textPrimary,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  buttonSubtitle: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  statsContainer: {
-    flexDirection: 'row',
+  favoritesScroll: {
     gap: 12,
   },
-  statCard: {
-    flex: 1,
+  favoriteCard: {
     backgroundColor: colors.cardBackground,
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: colors.cardBorder,
+    width: 150,
+    gap: 6,
   },
-  statValue: {
+  favoriteName: {
     color: colors.textPrimary,
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: '600',
   },
-  statLabel: {
-    color: colors.textSecondary,
-    fontSize: 13,
+  favoriteInfo: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
 });
