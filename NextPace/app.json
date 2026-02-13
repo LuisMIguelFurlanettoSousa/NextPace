@@ -25,7 +25,8 @@
       "permissions": [
         "VIBRATE",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.luismiguel7.NextPace"
     },
@@ -34,7 +35,14 @@
     },
     "plugins": [
       "@react-native-community/datetimepicker",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "color": "#FF2D55",
+          "defaultChannel": "workout_timer"
+        }
+      ]
     ],
     "extra": {
       "eas": {

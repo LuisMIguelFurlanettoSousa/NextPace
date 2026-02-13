@@ -19,6 +19,10 @@ import { workoutHistoryStorage } from '../services/workoutHistoryStorage';
 import { CircularTimer } from '../components/CircularTimer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSoundSource } from '../constants/sounds';
+import { configureAudioSession } from '../services/audioConfig';
+import { initializeNotifications, dismissWorkoutNotification } from '../services/workoutNotification';
+import { useBackgroundTimer } from '../hooks/useBackgroundTimer';
+import { simulateElapsedTime, WorkoutSnapshot } from '../utils/workoutSimulation';
 
 interface ActiveTrainingProps {
   trainingId: string;
@@ -75,10 +79,13 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   }, []);
 
   useEffect(() => {
+    configureAudioSession();
+    initializeNotifications();
     loadTraining();
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      dismissWorkoutNotification();
     };
   }, []);
 
@@ -448,11 +455,82 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
     };
   }, [phase, isPaused, timeLeft, advanceWorkout, startNextWorkingPhase, triggerWarning]);
 
+  // Callback de correção de tempo ao voltar do background
+  // Simula TODA a progressão do treino que aconteceria durante o tempo em background
+  const handleTimeCorrection = useCallback((elapsedSeconds: number) => {
+    if (!training) return;
+
+    // Snapshot do estado atual
+    const currentPhase = phase === 'working' || phase === 'resting' ? phase : null;
+    if (!currentPhase) return;
+
+    const snapshot: WorkoutSnapshot = {
+      exerciseIndex: currentExerciseIndex,
+      set: currentSet,
+      phase: currentPhase,
+      timeLeft,
+      totalSetsCompleted,
+      round: currentRound,
+      isDefaultRest,
+    };
+
+    const result = simulateElapsedTime(training, snapshot, elapsedSeconds);
+
+    // Aplica todo o estado de uma vez
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    setCurrentExerciseIndex(result.exerciseIndex);
+    setCurrentSet(result.set);
+    setTotalSetsCompleted(result.totalSetsCompleted);
+    setCurrentRound(result.round);
+    setIsDefaultRest(result.isDefaultRest);
+    setTimeLeft(result.timeLeft);
+    setPhase(result.phase);
+  }, [training, phase, currentExerciseIndex, currentSet, timeLeft, totalSetsCompleted, currentRound, isDefaultRest]);
+
+  // Callback de ações da notificação (botões)
+  const handleNotificationAction = useCallback((actionId: string) => {
+    if (actionId === 'pause_resume') {
+      setIsPaused((prev) => !prev);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } else if (actionId === 'skip') {
+      skipPhaseRef.current();
+    }
+  }, []);
+
+  const skipPhaseRef = useRef(() => {});
+
+  // Dados para a notificação
+  const isNotificationRest = phase === 'resting';
+  const notificationExerciseName = (() => {
+    if (isNotificationRest) {
+      // Durante descanso: mostra o nome do próximo exercício real
+      if (isDefaultRest) return currentExercise?.name || 'Próximo exercício';
+      const next = training?.exercises[currentExerciseIndex + 1];
+      return next && next.type !== 'rest' ? next.name : (currentExercise?.name || 'Próximo exercício');
+    }
+    return currentExercise?.name || '';
+  })();
+  const notificationSetInfo = currentExercise && currentExercise.type !== 'rest' && !isDefaultRest && currentExercise.sets
+    ? `Série ${currentSet}/${currentExercise.sets}`
+    : undefined;
+
+  useBackgroundTimer({
+    phase,
+    timeLeft,
+    isPaused,
+    exerciseName: notificationExerciseName,
+    setInfo: notificationSetInfo,
+    isResting: phase === 'resting',
+    onTimeCorrection: handleTimeCorrection,
+    onNotificationAction: handleNotificationAction,
+  });
+
   const togglePause = () => {
     setIsPaused((prev) => !prev);
   };
 
-  const skipPhase = () => {
+  const skipPhase = useCallback(() => {
     isSkippingRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
 
@@ -464,7 +542,12 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
 
     // Libera o guard após o React processar as atualizações
     setTimeout(() => { isSkippingRef.current = false; }, 200);
-  };
+  }, [phase, advanceWorkout, startNextWorkingPhase]);
+
+  // Mantém skipPhaseRef atualizado para uso na notificação
+  useEffect(() => {
+    skipPhaseRef.current = skipPhase;
+  }, [skipPhase]);
 
   const handleCancel = () => {
     Alert.alert(
