@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "NextPace",
-    "slug": "NextPace",
+    "slug": "Q58App",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -40,6 +40,7 @@
       "eas": {
         "projectId": "4ab26866-60f9-463d-bc1e-433002cfacf7"
       }
-    }
+    },
+    "owner": "luismiguel7"
   }
 }
