@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,6 @@ import {
   Pressable,
   Modal,
   Platform,
-  ScrollView,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
@@ -62,119 +59,83 @@ const dateToSeconds = (date: Date): number => {
   return date.getMinutes() * 60 + date.getSeconds();
 };
 
-const ITEM_HEIGHT = 50;
-
-// Wheel Picker Column Component
-const WheelPickerColumn: React.FC<{
-  data: number[];
-  selectedValue: number;
-  onValueChange: (value: number) => void;
+// Stepper Column para Android - botões +/− confiáveis
+const StepperColumn: React.FC<{
+  value: number;
+  maxValue: number;
   label: string;
   accentColor?: string;
-}> = ({ data, selectedValue, onValueChange, label, accentColor = colors.primary }) => {
-  const scrollViewRef = useRef<ScrollView>(null);
-  const initialScrollDone = useRef(false);
-  const isDragging = useRef(false);
+  onValueChange: (value: number) => void;
+}> = ({ value, maxValue, label, accentColor = colors.primary, onValueChange }) => {
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const valueRef = useRef(value);
+  const onValueChangeRef = useRef(onValueChange);
 
-  // Scroll to selected value on mount
   useEffect(() => {
-    if (!initialScrollDone.current) {
-      const index = data.indexOf(selectedValue);
-      if (index >= 0) {
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({
-            y: index * ITEM_HEIGHT,
-            animated: false,
-          });
-        }, 100);
-      }
-      initialScrollDone.current = true;
+    valueRef.current = value;
+    onValueChangeRef.current = onValueChange;
+  }, [value, onValueChange]);
+
+  const stopRepeating = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
   }, []);
 
-  const snapToIndex = (offsetY: number) => {
-    const index = Math.round(offsetY / ITEM_HEIGHT);
-    const clampedIndex = Math.max(0, Math.min(index, data.length - 1));
-    const newValue = data[clampedIndex];
+  const increment = useCallback(() => {
+    const v = valueRef.current;
+    const next = v >= maxValue ? 0 : v + 1;
+    valueRef.current = next;
+    onValueChangeRef.current(next);
+  }, [maxValue]);
 
-    scrollViewRef.current?.scrollTo({
-      y: clampedIndex * ITEM_HEIGHT,
-      animated: true,
-    });
+  const decrement = useCallback(() => {
+    const v = valueRef.current;
+    const next = v <= 0 ? maxValue : v - 1;
+    valueRef.current = next;
+    onValueChangeRef.current(next);
+  }, [maxValue]);
 
-    if (newValue !== selectedValue) {
-      onValueChange(newValue);
-    }
-  };
+  const startRepeating = useCallback((action: () => void) => {
+    intervalRef.current = setInterval(action, 120);
+  }, []);
 
-  const handleScrollBeginDrag = () => {
-    isDragging.current = true;
-  };
-
-  const handleScrollEndDrag = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    isDragging.current = false;
-    // No Android, se não houver momentum, precisamos fazer o snap manualmente
-    // onMomentumScrollEnd pode não ser chamado se o usuário soltar sem velocidade
-    const velocity = event.nativeEvent.velocity?.y ?? 0;
-    if (Math.abs(velocity) < 0.5) {
-      snapToIndex(event.nativeEvent.contentOffset.y);
-    }
-  };
-
-  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!isDragging.current) {
-      snapToIndex(event.nativeEvent.contentOffset.y);
-    }
-  };
+  useEffect(() => {
+    return stopRepeating;
+  }, [stopRepeating]);
 
   return (
-    <View style={styles.androidPickerColumn}>
-      <Text style={styles.androidPickerLabel}>{label}</Text>
-      <View style={styles.wheelContainer}>
-        {/* Selection indicator behind */}
-        <View style={[styles.selectionIndicator, { backgroundColor: accentColor }]} />
-
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.androidPickerScroll}
-          showsVerticalScrollIndicator={false}
-          snapToInterval={ITEM_HEIGHT}
-          decelerationRate="fast"
-          nestedScrollEnabled={true}
-          overScrollMode="never"
-          bounces={false}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollEndDrag={handleScrollEndDrag}
-          onMomentumScrollEnd={handleMomentumScrollEnd}
-        >
-          {/* Top padding */}
-          <View style={{ height: ITEM_HEIGHT }} />
-
-          {data.map((item) => {
-            const isSelected = item === selectedValue;
-            return (
-              <View key={item} style={styles.androidPickerItem}>
-                <Text
-                  style={[
-                    styles.androidPickerItemText,
-                    isSelected && styles.androidPickerItemTextSelected,
-                  ]}
-                >
-                  {item.toString().padStart(2, '0')}
-                </Text>
-              </View>
-            );
-          })}
-
-          {/* Bottom padding */}
-          <View style={{ height: ITEM_HEIGHT }} />
-        </ScrollView>
+    <View style={styles.stepperColumn}>
+      <Text style={styles.stepperLabel}>{label}</Text>
+      <TouchableOpacity
+        style={[styles.stepperButton, { borderColor: accentColor }]}
+        onPress={increment}
+        onLongPress={() => startRepeating(increment)}
+        onPressOut={stopRepeating}
+        activeOpacity={0.6}
+      >
+        <Ionicons name="chevron-up" size={28} color={accentColor} />
+      </TouchableOpacity>
+      <View style={[styles.stepperValueBox, { borderColor: accentColor }]}>
+        <Text style={styles.stepperValueText}>
+          {value.toString().padStart(2, '0')}
+        </Text>
       </View>
+      <TouchableOpacity
+        style={[styles.stepperButton, { borderColor: accentColor }]}
+        onPress={decrement}
+        onLongPress={() => startRepeating(decrement)}
+        onPressOut={stopRepeating}
+        activeOpacity={0.6}
+      >
+        <Ionicons name="chevron-down" size={28} color={accentColor} />
+      </TouchableOpacity>
     </View>
   );
 };
 
-// Custom Android Picker Component
+// Custom Android Picker com botões +/−
 const AndroidTimerPicker: React.FC<{
   value: number | undefined;
   onChange: (seconds: number) => void;
@@ -182,9 +143,6 @@ const AndroidTimerPicker: React.FC<{
 }> = ({ value, onChange, accentColor = colors.primary }) => {
   const currentMinutes = value ? Math.floor(value / 60) : 1;
   const currentSeconds = value ? value % 60 : 0;
-
-  const minutes = Array.from({ length: 60 }, (_, i) => i);
-  const seconds = Array.from({ length: 60 }, (_, i) => i);
 
   const handleMinutesChange = (min: number) => {
     onChange(min * 60 + currentSeconds);
@@ -196,22 +154,22 @@ const AndroidTimerPicker: React.FC<{
 
   return (
     <View style={styles.androidPickerContainer}>
-      <WheelPickerColumn
-        data={minutes}
-        selectedValue={currentMinutes}
-        onValueChange={handleMinutesChange}
+      <StepperColumn
+        value={currentMinutes}
+        maxValue={59}
         label="MIN"
         accentColor={accentColor}
+        onValueChange={handleMinutesChange}
       />
 
       <Text style={styles.androidPickerSeparator}>:</Text>
 
-      <WheelPickerColumn
-        data={seconds}
-        selectedValue={currentSeconds}
-        onValueChange={handleSecondsChange}
+      <StepperColumn
+        value={currentSeconds}
+        maxValue={59}
         label="SEG"
         accentColor={accentColor}
+        onValueChange={handleSecondsChange}
       />
     </View>
   );
@@ -454,68 +412,54 @@ const styles = StyleSheet.create({
   picker: {
     backgroundColor: colors.cardBackground,
   },
-  // Android custom picker styles
+  // Android stepper picker styles
   androidPickerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 20,
     paddingHorizontal: 20,
   },
-  androidPickerColumn: {
+  stepperColumn: {
     alignItems: 'center',
     width: 100,
   },
-  androidPickerLabel: {
+  stepperLabel: {
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 10,
     letterSpacing: 1,
   },
-  wheelContainer: {
-    height: 150,
-    width: 100,
+  stepperButton: {
+    width: 64,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.background,
   },
-  selectionIndicator: {
-    position: 'absolute',
-    top: 50,
-    left: 5,
-    right: 5,
-    height: 50,
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    zIndex: 0,
-  },
-  androidPickerScroll: {
-    height: 150,
-    width: 100,
-    zIndex: 1,
-  },
-  androidPickerItem: {
-    height: 50,
-    width: 100,
+  stepperValueBox: {
+    width: 80,
+    height: 60,
+    borderRadius: 14,
+    borderWidth: 2,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.background,
+    marginVertical: 8,
   },
-  androidPickerItemText: {
-    color: colors.textSecondary,
-    fontSize: 26,
-    fontWeight: '500',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-  },
-  androidPickerItemTextSelected: {
+  stepperValueText: {
     color: colors.textPrimary,
+    fontSize: 32,
     fontWeight: '700',
   },
   androidPickerSeparator: {
     color: colors.textPrimary,
     fontSize: 32,
     fontWeight: '700',
-    marginTop: 28,
+    marginTop: 30,
   },
   timerButton: {
     backgroundColor: colors.background,
