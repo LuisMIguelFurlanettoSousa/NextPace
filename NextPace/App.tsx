@@ -1,6 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as Notifications from 'expo-notifications';
 import { Dashboard } from './src/screens/Dashboard';
 import { MyTrainings } from './src/screens/MyTrainings';
 import { AddTraining } from './src/screens/AddTraining';
@@ -43,17 +42,6 @@ export default function App() {
   const onStartTraining = useCallback((trainingId: string) => {
     setSelectedTrainingId(trainingId);
     setCurrentScreen('ActiveTraining');
-  }, []);
-
-  // Listener: ao tocar na notificação, navega para ActiveTraining
-  useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data?.screen === 'ActiveTraining' && response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
-        setCurrentScreen('ActiveTraining');
-      }
-    });
-    return () => subscription.remove();
   }, []);
 
   const goToTrainingDetail = useCallback(() => {
