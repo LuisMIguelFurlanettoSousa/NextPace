@@ -1,13 +1,11 @@
 import React, { useRef, useState } from 'react';
 import {
   View,
-  Animated,
-  PanResponder,
   StyleSheet,
   LayoutChangeEvent,
   ViewStyle,
   Vibration,
-  Platform,
+  GestureResponderEvent,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -43,7 +41,6 @@ export function DraggableList<T>({
   const itemHeightsRef = useRef<number[]>([]);
   const dataRef = useRef(data);
 
-  // Keep refs in sync
   dataRef.current = data;
   itemHeightsRef.current = itemHeights;
 
@@ -64,7 +61,6 @@ export function DraggableList<T>({
   };
 
   const handleDragStart = async (index: number) => {
-    // Trigger haptic feedback
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     } catch {
@@ -107,14 +103,12 @@ export function DraggableList<T>({
     onItemTap?.(item, index);
   };
 
-  // Calculate visual positions based on drag state
   const getItemStyle = (index: number) => {
     if (draggingIndex === null) {
       return { transform: [{ translateY: 0 }], zIndex: 1 };
     }
 
     if (index === draggingIndex) {
-      // Dragged item follows finger
       return {
         transform: [{ translateY: dragY }],
         zIndex: 999,
@@ -126,18 +120,15 @@ export function DraggableList<T>({
       };
     }
 
-    // Calculate target position
     const targetIndex = getTargetIndex(draggingIndex, dragY);
     const itemHeight = itemHeights[draggingIndex] || 80;
 
     let offset = 0;
     if (draggingIndex < targetIndex) {
-      // Dragging down: items between dragging and target move up
       if (index > draggingIndex && index <= targetIndex) {
         offset = -itemHeight;
       }
     } else if (draggingIndex > targetIndex) {
-      // Dragging up: items between target and dragging move down
       if (index >= targetIndex && index < draggingIndex) {
         offset = itemHeight;
       }
@@ -147,7 +138,7 @@ export function DraggableList<T>({
   };
 
   return (
-    <View style={[styles.container, contentContainerStyle]}>
+    <View style={contentContainerStyle}>
       {data.map((item, index) => (
         <DraggableItem
           key={keyExtractor(item)}
@@ -203,81 +194,86 @@ function DraggableItem<T>({
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const isActivated = useRef(false);
   const startTime = useRef(0);
+  const startPageY = useRef(0);
   const hasMoved = useRef(false);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => isActivated.current,
-      onMoveShouldSetPanResponderCapture: () => isActivated.current,
-
-      onPanResponderGrant: () => {
-        isActivated.current = false;
-        hasMoved.current = false;
-        startTime.current = Date.now();
-
-        longPressTimer.current = setTimeout(() => {
-          isActivated.current = true;
-          onDragStart(indexRef.current);
-        }, longPressDuration);
-      },
-
-      onPanResponderMove: (_, gestureState) => {
-        if (!isActivated.current) {
-          if (Math.abs(gestureState.dy) > 8 || Math.abs(gestureState.dx) > 8) {
-            if (longPressTimer.current) {
-              clearTimeout(longPressTimer.current);
-              longPressTimer.current = null;
-            }
-            hasMoved.current = true;
-          }
-          return;
-        }
-        onDragMove(gestureState.dy);
-      },
-
-      onPanResponderRelease: (_, gestureState) => {
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-
-        const pressDuration = Date.now() - startTime.current;
-
-        if (!isActivated.current) {
-          if (!hasMoved.current && pressDuration < longPressDuration) {
-            onTap(itemRef.current, indexRef.current);
-          }
-          return;
-        }
-
-        onDragEnd();
-        isActivated.current = false;
-      },
-
-      onPanResponderTerminate: () => {
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-        if (isActivated.current) {
-          onDragEnd();
-        }
-        isActivated.current = false;
-      },
-    })
-  ).current;
+  const clearTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   const handleLayout = (event: LayoutChangeEvent) => {
     const { height } = event.nativeEvent.layout;
     onLayout(indexRef.current, height);
   };
 
+  // --- Eventos nativos de toque: long press e tap ---
+  // Não bloqueiam o ScrollView
+  const handleTouchStart = (e: GestureResponderEvent) => {
+    hasMoved.current = false;
+    isActivated.current = false;
+    startTime.current = Date.now();
+    startPageY.current = e.nativeEvent.pageY;
+
+    longPressTimer.current = setTimeout(() => {
+      isActivated.current = true;
+      onDragStart(indexRef.current);
+    }, longPressDuration);
+  };
+
+  const handleTouchEnd = () => {
+    clearTimer();
+
+    // Se estava arrastando, o onResponderRelease cuida
+    if (isActivated.current) return;
+
+    const pressDuration = Date.now() - startTime.current;
+    if (!hasMoved.current && pressDuration < longPressDuration) {
+      onTap(itemRef.current, indexRef.current);
+    }
+  };
+
+  const handleTouchCancel = () => {
+    clearTimer();
+    hasMoved.current = true;
+  };
+
+  // --- Responder system: rastreia o drag após long press ---
+  // onMoveShouldSetResponder só retorna true quando isActivated = true
+  // Isso permite o ScrollView funcionar normalmente até o long press ativar
+
   return (
     <View
       style={[styles.itemContainer, style]}
       onLayout={handleLayout}
-      {...panResponder.panHandlers}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
+      onStartShouldSetResponder={() => false}
+      onMoveShouldSetResponder={() => isActivated.current}
+      onMoveShouldSetResponderCapture={() => isActivated.current}
+      onResponderTerminationRequest={() => !isActivated.current}
+      onResponderMove={(e) => {
+        if (isActivated.current) {
+          const dy = e.nativeEvent.pageY - startPageY.current;
+          onDragMove(dy);
+        }
+      }}
+      onResponderRelease={() => {
+        if (isActivated.current) {
+          onDragEnd();
+          isActivated.current = false;
+        }
+      }}
+      onResponderTerminate={() => {
+        clearTimer();
+        if (isActivated.current) {
+          onDragEnd();
+          isActivated.current = false;
+        }
+      }}
     >
       {renderItem(item, index, isDragging)}
     </View>
@@ -285,9 +281,6 @@ function DraggableItem<T>({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
   itemContainer: {
     position: 'relative',
   },
