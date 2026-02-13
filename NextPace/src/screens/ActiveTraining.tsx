@@ -527,7 +527,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
             <Ionicons name="timer-outline" size={64} color={colors.textMuted} />
             <Text style={styles.noTimerTitle}>Tempo não configurado</Text>
             <Text style={styles.noTimerText}>
-              Configure o "Tempo da série" no exercício "{currentExercise.name}" para usar o modo automático.
+              Configure o "Tempo da série" no exercício "{currentExercise.name}".
             </Text>
             <TouchableOpacity style={styles.backButton} onPress={onGoToTrainingDetail}>
               <Text style={styles.backButtonText}>Voltar e Configurar</Text>
@@ -874,6 +874,8 @@ const styles = StyleSheet.create({
     paddingTop: 20,
   },
   phaseLabel: {
+    minWidth: 160,
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 20,
@@ -887,8 +889,6 @@ const styles = StyleSheet.create({
   },
   restCardLabel: {
     backgroundColor: colors.rest,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
   },
   restCardLabelText: {
     color: '#FFFFFF',
@@ -985,8 +985,6 @@ const styles = StyleSheet.create({
   nextExerciseContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.cardBorder,
   },
   nextExerciseLabel: {
     color: colors.textMuted,
