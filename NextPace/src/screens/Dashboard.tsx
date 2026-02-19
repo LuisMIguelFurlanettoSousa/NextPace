@@ -5,8 +5,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
-import { workoutHistoryStorage, WorkoutLog, WeeklySummary as WeeklySummaryData } from '../services/workoutHistoryStorage';
-import { trainingStorage, Training } from '../services/trainingStorage';
+import { workoutService, WorkoutLog, WeeklySummary as WeeklySummaryData } from '../services/workout/workoutService';
+import { trainingService, Training } from '../services/training/trainingService';
 import { QuickStartCard } from '../components/QuickStartCard';
 import { WeeklySummary } from '../components/WeeklySummary';
 import { ActivityCalendar } from '../components/ActivityCalendar';
@@ -43,10 +43,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const loadData = useCallback(async () => {
     const [last, summary, days, favs] = await Promise.all([
-      workoutHistoryStorage.getLastWorkout(),
-      workoutHistoryStorage.getWeeklySummary(),
-      workoutHistoryStorage.getMonthActivity(now.getFullYear(), now.getMonth()),
-      trainingStorage.getFavorites(),
+      workoutService.getLastWorkout(),
+      workoutService.getWeeklySummary(),
+      workoutService.getMonthActivity(now.getFullYear(), now.getMonth()),
+      trainingService.getFavorites(),
     ]);
     setLastWorkout(last);
     setWeeklySummary(summary);

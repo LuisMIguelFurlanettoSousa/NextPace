@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
-import { WeeklySummary as WeeklySummaryData } from '../services/workoutHistoryStorage';
+import { WeeklySummary as WeeklySummaryData } from '../services/workout/workoutService';
 
 interface WeeklySummaryProps {
   summary: WeeklySummaryData;
