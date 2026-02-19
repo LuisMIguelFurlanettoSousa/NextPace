@@ -14,8 +14,8 @@ import * as Haptics from 'expo-haptics';
 import { useAudioPlayer } from 'expo-audio';
 import { useKeepAwake } from 'expo-keep-awake';
 import { colors } from '../theme/colors';
-import { trainingStorage, Training, Exercise } from '../services/trainingStorage';
-import { workoutHistoryStorage } from '../services/workoutHistoryStorage';
+import { trainingService, Training, Exercise } from '../services/training/trainingService';
+import { workoutService } from '../services/workout/workoutService';
 import { CircularTimer } from '../components/CircularTimer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getSoundSource } from '../constants/sounds';
@@ -110,7 +110,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   }, [phase, training]);
 
   const loadTraining = async () => {
-    const data = await trainingStorage.getById(trainingId);
+    const data = await trainingService.getById(trainingId);
     setTraining(data);
     if (data && data.exercises.length > 0) {
       const firstExercise = data.exercises[0];
@@ -382,7 +382,7 @@ export const ActiveTraining: React.FC<ActiveTrainingProps> = ({
   useEffect(() => {
     if (phase === 'finished' && training && !workoutSavedRef.current) {
       workoutSavedRef.current = true;
-      workoutHistoryStorage.save({
+      workoutService.save({
         trainingId: training.id,
         trainingName: training.name,
         completedAt: new Date().toISOString(),

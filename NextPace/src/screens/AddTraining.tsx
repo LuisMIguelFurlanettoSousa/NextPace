@@ -18,7 +18,8 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
-import { trainingStorage, Exercise, formatTime } from '../services/trainingStorage';
+import { trainingService, Exercise } from '../services/training/trainingService';
+import { formatTime } from '../utils/formatTime';
 import { TimerPickerModal, TimerButton, TimerPresets, REST_PRESETS } from '../components/TimerPickerModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SoundPicker } from '../components/SoundPicker';
@@ -92,7 +93,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
 
     setSaving(true);
     try {
-      const newTraining = await trainingStorage.save({
+      const newTraining = await trainingService.save({
         name: trainingName.trim(),
         description: description.trim(),
         defaultRestSeconds,
@@ -102,7 +103,7 @@ export const AddTraining: React.FC<AddTrainingProps> = ({ onGoBack, onSave }) =>
       });
 
       for (const exercise of exercises) {
-        await trainingStorage.addExercise(newTraining.id, {
+        await trainingService.addExercise(newTraining.id, {
           name: exercise.name,
           type: exercise.type,
           sets: exercise.sets,

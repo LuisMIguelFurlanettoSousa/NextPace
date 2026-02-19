@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
-import { trainingStorage, Training } from '../services/trainingStorage';
+import { trainingService, Training } from '../services/training/trainingService';
 
 interface MyTrainingsProps {
   onAddTraining: () => void;
@@ -31,7 +31,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
 
   const loadTrainings = async () => {
     try {
-      const data = await trainingStorage.getAll();
+      const data = await trainingService.getAll();
       setTrainings(data);
     } catch (error) {
       console.error('Error loading trainings:', error);
@@ -42,7 +42,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
 
   const handleDelete = async (id: string) => {
     try {
-      await trainingStorage.delete(id);
+      await trainingService.delete(id);
       setTrainings((prev) => prev.filter((t) => t.id !== id));
     } catch (error) {
       console.error('Error deleting training:', error);
@@ -51,7 +51,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
 
   const handleDuplicate = async (id: string) => {
     try {
-      const duplicated = await trainingStorage.duplicate(id);
+      const duplicated = await trainingService.duplicate(id);
       if (duplicated) {
         setTrainings((prev) => [...prev, duplicated]);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -63,7 +63,7 @@ export const MyTrainings: React.FC<MyTrainingsProps> = ({
 
   const handleToggleFavorite = async (id: string) => {
     try {
-      const isFavorite = await trainingStorage.toggleFavorite(id);
+      const isFavorite = await trainingService.toggleFavorite(id);
       setTrainings((prev) =>
         prev.map((t) => (t.id === id ? { ...t, isFavorite } : t))
       );

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
-import { WorkoutLog } from '../services/workoutHistoryStorage';
+import { WorkoutLog } from '../services/workout/workoutService';
 
 interface LastWorkoutCardProps {
   workout: WorkoutLog;

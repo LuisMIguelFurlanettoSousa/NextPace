@@ -15,7 +15,8 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
-import { trainingStorage, Training, Exercise, formatTime } from '../services/trainingStorage';
+import { trainingService, Training, Exercise } from '../services/training/trainingService';
+import { formatTime } from '../utils/formatTime';
 import { TimerPickerModal, TimerButton, TimerPresets, REST_PRESETS } from '../components/TimerPickerModal';
 import { DraggableList } from '../components/DraggableList';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -67,7 +68,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
   }, []);
 
   const loadTraining = async () => {
-    const data = await trainingStorage.getById(trainingId);
+    const data = await trainingService.getById(trainingId);
     setTraining(data);
     if (data) {
       setDefaultRestSeconds(data.defaultRestSeconds);
@@ -93,7 +94,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     setSaving(true);
     try {
       if (isEditing && editingExerciseId) {
-        await trainingStorage.updateExercise(trainingId, editingExerciseId, {
+        await trainingService.updateExercise(trainingId, editingExerciseId, {
           name: exerciseName.trim(),
           sets: sets ? parseInt(sets) : undefined,
           reps: reps ? parseInt(reps) : undefined,
@@ -101,7 +102,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
           setDurationSeconds: setDuration,
         });
       } else {
-        await trainingStorage.addExercise(trainingId, {
+        await trainingService.addExercise(trainingId, {
           name: exerciseName.trim(),
           sets: sets ? parseInt(sets) : undefined,
           reps: reps ? parseInt(reps) : undefined,
@@ -121,7 +122,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
 
   const handleDeleteExercise = async (exerciseId: string) => {
     try {
-      await trainingStorage.removeExercise(trainingId, exerciseId);
+      await trainingService.removeExercise(trainingId, exerciseId);
       await loadTraining();
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível remover o exercício');
@@ -136,7 +137,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
 
     // Salva no storage
     try {
-      await trainingStorage.reorderExercises(trainingId, exercises);
+      await trainingService.reorderExercises(trainingId, exercises);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível reordenar os exercícios');
       await loadTraining();
@@ -169,13 +170,13 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
     setSaving(true);
     try {
       if (isEditingRestCard && editingRestCardId) {
-        await trainingStorage.updateExercise(trainingId, editingRestCardId, {
+        await trainingService.updateExercise(trainingId, editingRestCardId, {
           name: 'Descanso',
           type: 'rest',
           durationSeconds: restCardDuration,
         });
       } else {
-        await trainingStorage.addExercise(trainingId, {
+        await trainingService.addExercise(trainingId, {
           name: 'Descanso',
           type: 'rest',
           durationSeconds: restCardDuration,
@@ -193,7 +194,7 @@ export const TrainingDetail: React.FC<TrainingDetailProps> = ({ trainingId, onGo
 
   const handleSaveSettings = async () => {
     try {
-      await trainingStorage.update(trainingId, {
+      await trainingService.update(trainingId, {
         defaultRestSeconds,
         rounds: rounds ? parseInt(rounds) : undefined,
         alertSound,

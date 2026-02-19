@@ -11,7 +11,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
-import { formatTime } from '../services/trainingStorage';
+import { formatTime } from '../utils/formatTime';
 
 interface TimerPickerModalProps {
   visible: boolean;
