@@ -223,6 +223,14 @@ function DraggableItem<T>({
     }, longPressDuration);
   };
 
+  const handleTouchMove = (e: GestureResponderEvent) => {
+    const dy = Math.abs(e.nativeEvent.pageY - startPageY.current);
+    if (dy > 10) {
+      hasMoved.current = true;
+      clearTimer();
+    }
+  };
+
   const handleTouchEnd = () => {
     clearTimer();
 
@@ -249,6 +257,7 @@ function DraggableItem<T>({
       style={[styles.itemContainer, style]}
       onLayout={handleLayout}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
       onStartShouldSetResponder={() => false}
