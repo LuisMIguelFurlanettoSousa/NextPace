@@ -1,10 +1,53 @@
+# Dependencies
+node_modules/
 
-# Claude Code - MCP configuration with secrets
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native builds
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# Debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.*
+.env*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Claude Code
+.claude/
 .mcp.json
-# Claude Code - Local settings with machine-specific paths
-.claude/settings.json
-# Claude Code - Environment variables
 .env.claude
-# Claude Code - Log files
+CLAUDE.local.md
 logs/
-logs/**
+
+# Generated native folders
+ios/
+android/
