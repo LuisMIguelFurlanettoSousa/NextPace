@@ -92,4 +92,4 @@ npx expo start --ios
 
 ## Licença
 
-Projeto privado.
+Este projeto está licenciado sob a [MIT License](LICENSE).
